@@ -2,7 +2,7 @@ import adapter from '@sveltejs/adapter-node';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
 	ssr: { external: ['bun:sqlite'] },
 	plugins: [
 		sveltekit({
@@ -12,7 +12,10 @@ export default defineConfig({
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
 
-			adapter: adapter()
+			adapter: adapter(),
+			paths: {
+				origin: process.env.ORIGIN || (command === 'build' ? 'http://localhost:3000' : undefined)
+			}
 		})
 	]
-});
+}));

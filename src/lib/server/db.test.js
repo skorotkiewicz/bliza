@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openStore, store } from './db.js';
+import { openStore } from './db.js';
 
 test('portal saves conversations, isolated sessions and toggles across SQLite reopen', () => {
 	const path = join(mkdtempSync(join(tmpdir(), 'bliza-')), 'portal.sqlite');

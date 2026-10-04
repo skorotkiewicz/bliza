@@ -7,7 +7,7 @@
 	let { data, form } = $props();
 	const initial = () => form?.values;
 	let kind = $state(initial()?.kind || 'question');
-	let draft = $state(initial()?.title || initial()?.body || '');
+	let draft = $state((initial()?.kind === 'blip' ? initial()?.body : initial()?.title) || '');
 	let description = $state(initial()?.kind === 'question' ? initial().body : '');
 	let showDescription = $state(initial()?.kind === 'question' && !!initial()?.body);
 	let category = $state(initial()?.category || 'Codzienność');
@@ -62,12 +62,10 @@
 			description = '';
 		}
 		kind = type;
-		document
-			.getElementById('composer')
-			?.scrollIntoView({
-				behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
-				block: 'center'
-			});
+		document.getElementById('composer')?.scrollIntoView({
+			behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+			block: 'center'
+		});
 		composeField?.focus({ preventScroll: true });
 	}
 
@@ -193,7 +191,7 @@
 						class="profile-name"
 						onclick={() => profileDialog.showModal()}
 						title="Zmień swój nick">{data.user.name}<Icon name="edit" size={12} /></button
-					><span class="profile-status"><span class="online-dot"></span> U siebie od dziś</span>
+					><span class="profile-status"><span class="online-dot"></span> Twój mały kąt</span>
 				</div>
 			</div>
 			<div class="profile-numbers">
@@ -294,7 +292,7 @@
 								placeholder="Trochę kontekstu zawsze pomaga… Możesz dodać #tagi."
 								maxlength="4000"
 								rows="3"></textarea>
-						</div>{:else}<input type="hidden" name="body" value="" />{/if}{/if}
+						</div>{:else}<input type="hidden" name="body" value={description} />{/if}{/if}
 				<div class="composer-footer">
 					<div class="composer-options">
 						<label class="sr-only" for="category">Kategoria wpisu</label><span
@@ -314,7 +312,7 @@
 								>{draft.length}<span> / 160</span></span
 							>{/if}
 					</div>
-					<button class="publish-button" disabled={pending || !draft.trim()} type="submit"
+					<button class="publish-button" disabled={pending} type="submit"
 						>{pending ? 'Chwileczkę…' : kind === 'question' ? 'Zapytaj' : 'Blipnij'}<Icon
 							name="arrow"
 							size={16}

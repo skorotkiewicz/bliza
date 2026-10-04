@@ -9,6 +9,7 @@
 		"preview": "bun --bun vite preview",
 		"start": "bun build/index.js",
 		"test": "DB_PATH=:memory: bun test src/lib/server/db.test.js",
+		"test:ui": "ORIGIN=http://127.0.0.1:4189 bun run build && bun tests/portal.check.js",
 		"prepare": "svelte-kit sync || echo ''",
 		"lint": "prettier --check .",
 		"format": "prettier --write ."

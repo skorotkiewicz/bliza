@@ -11,11 +11,14 @@ Open the URL printed by Vite. Requires Bun 1.3 or newer; SQLite uses `bun:sqlite
 
 ```sh
 bun run test
+bun run test:ui
 bun run build
 bun run start
 ```
 
-For production, set `ORIGIN` to the public URL, for example `ORIGIN=http://localhost:3000 bun run start`. To choose a database location, set `DB_PATH=/absolute/path/bliza.sqlite`. The default is `bliza.sqlite` in the working directory. Keep this file and its WAL files on persistent storage and back it up.
+The UI check starts an isolated production server and uses system Chromium (`CHROMIUM_PATH` can override `/usr/sbin/chromium`). It leaves screenshots and a test database in a temporary directory, without touching portal data.
+
+Production builds default to `http://localhost:3000`. For deployment, set the trusted public `ORIGIN` **at build time**: `ORIGIN=https://your-portal.example bun run build`, then `bun run start`. SvelteKit 3 uses this build-time origin for CSRF protection. Rebuild normally after the isolated UI check, which builds for its test port. To choose a database location, set `DB_PATH=/absolute/path/bliza.sqlite`. The default is `bliza.sqlite` in the working directory. Keep this file and its WAL files on persistent storage and back it up.
 
 ## What works
 
