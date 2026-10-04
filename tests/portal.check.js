@@ -66,6 +66,12 @@ try {
 	await page.goto(base);
 	await page.waitForLoadState('networkidle');
 	assert.equal(await page.locator('article.post').count(), 9, 'Seeded feed');
+	const favicon = new URL(await page.locator('link[rel="icon"]').getAttribute('href'), base);
+	assert.equal(favicon.origin, base, 'The favicon is a same-origin asset, not a CSP-blocked data URL');
+	assert(await page.evaluate(async () => {
+		const image = new Image(); image.src = document.querySelector('link[rel="icon"]').href;
+		await image.decode(); return image.naturalWidth > 0;
+	}), 'The branded favicon loads under the production CSP');
 	const contrast = await page.evaluate(() => {
 		const canvas = document.createElement('canvas');
 		canvas.width = canvas.height = 1;
