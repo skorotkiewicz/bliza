@@ -467,6 +467,7 @@
 											maxlength="2000"
 											rows="2"
 											placeholder="Dołącz do rozmowy…"></textarea><button
+											class="publish-button"
 											disabled={pending}
 											type="submit">Odpowiedz<Icon name="send" size={14} /></button
 										>

@@ -966,15 +966,19 @@
 		padding: 4px var(--s3);
 	}
 	.post-bottom {
-		display: flex;
-		align-items: center;
-		flex-wrap: wrap;
-		gap: 0 var(--s5);
+		display: grid;
+		grid-template-columns: 40px minmax(0, 1fr) 32px;
+		column-gap: var(--s5);
+		align-items: start;
 		margin-left: 52px;
 		color: var(--ink-caption);
 	}
-	.post-bottom button,
-	.post-bottom summary {
+	.post-bottom > form {
+		grid-area: 1 / 1;
+		z-index: 1;
+	}
+	.post-bottom > form button,
+	.replies summary {
 		min-height: 36px;
 		font-size: 10px;
 	}
@@ -990,16 +994,18 @@
 		fill: var(--blip-paper);
 	}
 	.replies {
-		display: contents;
+		grid-area: 1 / 1 / auto / -1;
+		min-width: 0;
 	}
 	.replies summary {
-		display: inline-flex;
+		display: flex;
 		align-items: center;
 		gap: 6px;
+		width: fit-content;
+		margin-left: calc(40px + var(--s5));
 		cursor: pointer;
 		list-style: none;
 		user-select: none;
-		order: 1;
 	}
 	.replies summary::-webkit-details-marker {
 		display: none;
@@ -1012,12 +1018,7 @@
 		font-weight: normal;
 		margin-left: 3px;
 	}
-	.replies:not([open]) .reply-thread {
-		display: none;
-	}
 	.reply-thread {
-		order: 3;
-		flex: 0 0 100%;
 		border-top: 1px solid var(--line-faint);
 		margin-top: var(--s2);
 		padding-top: var(--s4);
@@ -1039,32 +1040,28 @@
 		white-space: pre-wrap;
 	}
 	.reply-form {
-		display: flex;
-		align-items: flex-end;
+		display: grid;
 		gap: var(--s2);
 		margin-top: var(--s3);
 	}
 	.reply-form textarea {
 		min-width: 0;
-		flex: 1;
+		width: 100%;
+		min-height: 80px;
 		font-size: 12px;
 		padding: var(--s2);
 	}
 	.reply-form button {
-		color: var(--link);
-		border: 1px solid var(--line-strong);
-		border-radius: 4px;
-		padding: 0 var(--s3);
-		background: var(--inset);
-		white-space: nowrap;
+		justify-self: end;
+		min-height: 40px;
 	}
 	.first-reply {
 		font-size: 12px;
 		color: var(--ink-caption);
 	}
-	.save-form {
-		order: 2;
-		margin-left: auto;
+	.post-bottom > .save-form {
+		grid-column: 3;
+		justify-self: end;
 	}
 	.save-form button {
 		min-width: 32px;
@@ -1774,8 +1771,9 @@
 		.post:not(.question-post) .post-content p {
 			font-size: 14px;
 		}
-		.post-bottom button,
-		.post-bottom summary {
+		.post-bottom > form button,
+		.replies summary,
+		.reply-form button {
 			min-height: 44px;
 		}
 		.person button {
@@ -1812,15 +1810,6 @@
 		}
 		.composer-tabs {
 			gap: var(--s5);
-		}
-		.reply-form {
-			flex-wrap: wrap;
-		}
-		.reply-form textarea {
-			flex: 0 0 100%;
-		}
-		.reply-form button {
-			margin-left: auto;
 		}
 	}
 	@media (prefers-reduced-motion: reduce) {

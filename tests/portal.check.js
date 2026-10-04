@@ -75,6 +75,58 @@ try {
 	for (const pair of contrast)
 		assert(pair.ratio >= 4.5, `AA text contrast: ${pair.text} on ${pair.background}`);
 	await page.screenshot({ path: join(directory, 'desktop.png') });
+	for (const id of [1, 2]) {
+		const entry = page.locator(`#post-${id}`);
+		for (const width of [1440, 390, 320]) {
+			await page.setViewportSize({ width, height: 1080 });
+			await entry.scrollIntoViewIfNeeded();
+			const before = await entry.locator('summary').boundingBox();
+			await entry.locator('summary').click();
+			const layout = await entry.evaluate((node) => {
+				const rect = (selector) => node.querySelector(selector).getBoundingClientRect().toJSON();
+				return {
+					row: rect('.post-bottom'),
+					like: rect('.like-button'),
+					summary: rect('summary'),
+					save: rect('.save-form button'),
+					thread: rect('.reply-thread'),
+					field: rect('.reply-form textarea'),
+					submit: rect('.reply-form button')
+				};
+			});
+			assert(
+				Math.abs(layout.summary.x - before.x) < 1 && Math.abs(layout.summary.y - layout.like.y) < 1,
+				`Stable action row: post ${id} at ${width}px`
+			);
+			assert(Math.abs(layout.save.y - layout.like.y) < 1, 'Save stays on the action row');
+			assert(layout.thread.top >= layout.summary.bottom + 7, 'Replies open below the action row');
+			assert(
+				Math.abs(layout.thread.width - layout.row.width) < 1,
+				'Reply thread fills the available width'
+			);
+			assert(
+				Math.abs(layout.field.width - layout.thread.width) < 1,
+				'Reply textarea is full width'
+			);
+			assert(layout.submit.top >= layout.field.bottom + 7, 'Submit sits below the textarea');
+			assert(Math.abs(layout.submit.right - layout.field.right) < 1, 'Submit aligns right');
+			assert.equal(
+				await page.evaluate(() => document.documentElement.scrollWidth),
+				width,
+				'Expanded replies do not overflow'
+			);
+			if (width !== 320)
+				await entry.screenshot({ path: join(directory, `replies-${id}-${width}.png`) });
+			await entry.locator('summary').focus();
+			await page.keyboard.press('Space');
+			assert.equal(
+				await entry.locator('details').getAttribute('open'),
+				null,
+				'Keyboard collapses replies'
+			);
+		}
+	}
+	await page.setViewportSize({ width: 1440, height: 1080 });
 	await page.getByRole('button', { name: 'Twój profil', exact: true }).click();
 	await page.getByLabel('Twój nick', { exact: true }).fill('testowy_sąsiad');
 	await page.getByRole('button', { name: 'Zapisz nick' }).click();
