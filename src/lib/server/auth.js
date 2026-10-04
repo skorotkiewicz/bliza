@@ -2,12 +2,13 @@ import { error } from '@sveltejs/kit';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { store, digest, Problem } from './db.js';
 
+export async function readForm(event) { try { return await event.request.formData(); } catch { throw new Problem(400,'Nieprawidłowy formularz.'); } }
 export function sessionCookie(event, token) {
 	event.cookies.set('bliza_session', token, { path:'/', httpOnly:true, sameSite:'lax', secure:event.url.protocol==='https:', maxAge:365*86400 });
 }
 export async function currentUser(event) {
 	const old=event.cookies.get('bliza_session');
-	const {user,token}=await store.visitor(old,event.request.headers.get('user-agent'));
+	const {user,token}=await store.visitor(old,event.request.headers.get('user-agent'),event.getClientAddress());
 	if(old!==token) sessionCookie(event,token);
 	return user;
 }
@@ -17,7 +18,7 @@ export async function actor(event) {
 	if(!user) throw new Problem(401,'Sesja została wylogowana. Wróć z biletem.');
 	return {user,token};
 }
-export const adminEnabled=()=>typeof process.env.ADMIN==='string' && Buffer.byteLength(process.env.ADMIN)>=32 && Buffer.byteLength(process.env.ADMIN)<=256;
+export const adminEnabled=()=>typeof process.env.ADMIN==='string' && /^[\x21-\x7e]{32,256}$/.test(process.env.ADMIN);
 export function adminSecretMatches(input) {
 	return adminEnabled() && typeof input==='string' && input.length<=256 && timingSafeEqual(Buffer.from(digest(input),'hex'),Buffer.from(digest(process.env.ADMIN),'hex'));
 }

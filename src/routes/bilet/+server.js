@@ -1,4 +1,5 @@
 import { error, isHttpError } from '@sveltejs/kit';
+import { readForm } from '#lib/server/auth.js';
 import { store, Problem } from '#lib/server/db.js';
 
 export async function POST({ request, cookies, url }) {
@@ -7,7 +8,7 @@ export async function POST({ request, cookies, url }) {
 		error(413, 'Ten formularz jest za duży.');
 	let form;
 	try {
-		form = await request.formData();
+		form = await readForm({request});
 	} catch {
 		error(400, 'Niepoprawny formularz biletu.');
 	}

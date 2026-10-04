@@ -1736,6 +1736,12 @@
 	.post-header > .report-button { margin-left: auto; }
 	.verification-notice { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); padding: var(--s3) var(--s4); margin-bottom: var(--s4); background: var(--hello-paper); border: 1px solid var(--hello-line); border-radius: 4px; font-size: 11px; }
 	.verification-notice button { color: var(--link); min-height: 44px; }
+	.native-account { padding: var(--s5); margin-top: var(--s4); }
+	.native-account h2 { font-size: 16px; }
+	.native-account form { margin-top: var(--s4); }
+	.native-account input:not([type='checkbox']), .native-account textarea { width: 100%; min-height: 44px; }
+	.native-account label { display: block; font-size: 12px; }
+	.native-account .admin-confirm { display: flex; }
 	.account-verification, .account-sessions { margin-top: var(--s5); padding-top: var(--s5); border-top: 1px solid var(--line); }
 	.account-verification h3, .account-sessions h3 { font-size: 14px; }
 	.account-verification p, .account-sessions p { font-size: 11px; color: var(--ink-caption); margin-block: var(--s2); }

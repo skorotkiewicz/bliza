@@ -170,7 +170,11 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 			checks:[check('sessions',key,session),check('accounts',session.user_id,account)] };
 	}
 	const authenticated = async(token) => (await context(token))?.user||null;
-	function sessionRecord(id,generation,device) { return {id:randomUUID(),user_id:id,created:Date.now(),generation,device:String(device||'Nieznane urządzenie').slice(0,120),revoked:false}; }
+	function sessionRecord(id,generation,agent='') {
+		const browser=/Edg\//.test(agent)?'Edge':/Firefox\//.test(agent)?'Firefox':/Chrome\//.test(agent)?'Chrome':/Safari\//.test(agent)?'Safari':'Przeglądarka';
+		const system=/Android/.test(agent)?'Android':/iPhone|iPad/.test(agent)?'iOS':/Windows/.test(agent)?'Windows':/Macintosh/.test(agent)?'macOS':/Linux/.test(agent)?'Linux':'nieznane urządzenie';
+		return {id:randomUUID(),user_id:id,created:Date.now(),generation,device:`${browser} · ${system}`,revoked:false};
+	}
 	async function visitor(token,device,address) {
 		await init(); const existing=await context(token); if(existing) return {user:existing.user,token};
 		if(address) await limit(`guest:${address}`,20,3600000);
@@ -254,7 +258,7 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		if(/^legacy_[a-f0-9]{64}$/.test(id)) {
 			for(let page=1;!selected;page++) { const rows=await collections.sessions.where('user_id','eq',ctx.user.id).page(page,1000); selected=rows.find((r)=>!r.value.id && `legacy_${digest(r.key)}`===id); if(rows.length<1000) break; }
 		} else { safeId(id); const row=(await read('SELECT record_key FROM sessions WHERE user_id=? AND id=? LIMIT 1',ctx.user.id,id))[0]; if(row) selected={key:row.record_key,value:await collections.sessions.get(row.record_key)}; }
-		if(!selected) throw new Problem(404,'Nie znaleziono sesji.');
+		if(!selected?.value || selected.value.user_id!==ctx.user.id) throw new Problem(404,'Nie znaleziono sesji.');
 		await db.transaction({checks:[...ctx.checks,check('sessions',selected.key,selected.value)],puts:[put('sessions',selected.key,{...selected.value,revoked:true})]}); return selected.key===ctx.key;
 	}); }
 	function revokeOthers(token) { return retry(async()=>{

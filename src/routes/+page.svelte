@@ -1,7 +1,7 @@
 <script>
 	import { enhance } from '$app/forms';
 	import { goto, invalidateAll } from '$app/navigation';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import Icon from '#lib/Icon.svelte';
 	import Avatar from '#lib/Avatar.svelte';
 
@@ -13,7 +13,9 @@
 	let showDescription = $state(initial()?.kind === 'question' && !!initial()?.body);
 	let category = $state(initial()?.category || 'Codzienność');
 	let pending = $state(false);
-	let postNonce = $state(data.postNonce);
+	let postNonce = $state(untrack(()=>data.postNonce));
+	let identity=untrack(()=>data.user.id);
+	$effect(()=>{ if(identity!==data.user.id){identity=data.user.id;draft='';description='';clearImage();document.querySelectorAll('.reply-form').forEach((r)=>r.reset());} });
 	let reportDialog;
 	let reportKind = $state('post');
 	let reportId = $state('');
@@ -474,6 +476,7 @@
 				</div>
 			</form>
 		</section>
+		<noscript><section class="panel native-account"><h2>Twój profil bez JavaScript</h2><form method="POST" action="?/profile"><label for="native-name">Twój nick</label><input id="native-name" name="name" value={data.user.name} required minlength="3" maxlength="24" /><button class="ticket-return">Zapisz nick</button></form>{#if !data.user.approved}{#if data.user.verification}<p>Przekaż moderatorowi kod: <strong>{data.user.verification.code}</strong>. To potwierdzenie kontaktu, nie prawnej tożsamości.</p>{:else}<form method="POST" action="?/verification"><label for="native-note">Kilka słów do moderatora, bez danych wrażliwych</label><textarea id="native-note" name="note" required minlength="10" maxlength="500" rows="2"></textarea><button class="ticket-return">Poproś o zatwierdzenie konta</button></form>{/if}{/if}<form method="POST" action="/bilet">{#if data.hasTicket}<label class="admin-confirm"><input type="checkbox" name="replace" value="yes" required />Unieważnij stary bilet i wyloguj inne urządzenia.</label>{/if}<button class="ticket-return">Zabierz swój nick do domu</button></form><form method="POST" action="?/recover" enctype="multipart/form-data"><label for="native-ticket">Bilet powrotny w pliku TXT</label><input id="native-ticket" type="file" name="ticket" accept=".txt,text/plain" required /><button class="ticket-return">Wracam do siebie</button></form><p>Posiadacz pliku może wrócić do konta. Nie udostępniaj biletu.</p><form method="POST" action="?/others"><label class="admin-confirm"><input type="checkbox" name="confirmed" value="yes" required />Chcę wylogować pozostałe urządzenia.</label><button class="ticket-return">Wyloguj inne urządzenia</button></form><form method="POST" action="?/logout"><label class="admin-confirm"><input type="checkbox" name="confirmed" value="yes" required />Mam zapisany bilet albo świadomie zostawiam ten profil.</label><button class="ticket-return">Wyjdź na chwilę</button></form></section></noscript>
 		{#if (form?.error || form?.success) && !dismissed}<div
 				class="form-message"
 				class:error={!!form.error}
@@ -536,7 +539,7 @@
 								aria-label={`Wpisy ${post.name}`}><Avatar kind={post.avatar} size={40} /></a
 							>
 							<div class="post-byline">
-								<a class="author-name" href={link({ user: post.user_id }, true)}>{post.name}</a>{#if post.approved}<span class="approved-badge" title="Konto zatwierdzone przez moderatora"><Icon name="check" size={12} /></span>{/if}
+								<a class="author-name" href={link({ user: post.user_id }, true)}>{post.name}</a>{#if post.approved}<span class="approved-badge" role="img" aria-label="Konto zatwierdzone przez moderatora" title="Konto zatwierdzone przez moderatora"><Icon name="check" size={12} /></span>{/if}
 								<div class="post-meta">
 									<time datetime={new Date(post.created).toISOString()}>{ago(post.created)}</time
 									><span>·</span><a href={link({ category: post.category }, true)}
