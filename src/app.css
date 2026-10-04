@@ -1133,6 +1133,14 @@
 	}
 	.reply > div {
 		min-width: 0;
+		position: relative;
+		flex: 1;
+		padding-right: 44px;
+	}
+	.reply > div > .report-button {
+		position: absolute;
+		top: -12px;
+		right: 0;
 	}
 	.reply p {
 		margin-top: var(--s1);
@@ -2210,8 +2218,6 @@
 	.conversation-heading > span { font-size: 9px; letter-spacing: 0.5px; color: var(--ink-caption); }
 	.conversation .reply-thread { border: 0; margin: 0; padding: 0; }
 	.conversation .reply { gap: var(--s3); margin-bottom: var(--s3); }
-	.conversation .reply > div { position: relative; flex: 1; padding-right: 44px; }
-	.conversation .reply > div > .report-button { position: absolute; top: -8px; right: -8px; }
 	.conversation .reply p { font-size: 15px; line-height: 1.7; }
 	.conversation .reply .author-name { font-size: 12px; }
 	.qa-space .conversation .reply { padding: var(--s5); background: var(--sheet); border: 1px solid var(--line); border-radius: var(--radius); }
@@ -2260,7 +2266,6 @@
 		.detail-space .post-content { margin: var(--s5) 0 var(--s4); }
 		.conversation { margin: var(--s6) calc(-1 * var(--s5)) calc(-1 * var(--s5)); padding: var(--s5); }
 		.conversation-heading h2 { font-size: 18px; }
-		.conversation .reply > div { padding-right: 32px; }
 		.conversation .reply p { font-size: 14px; }
 		.qa-space .conversation .reply { padding: var(--s3); gap: var(--s2); }
 		.conversation .reply-form .publish-button { justify-self: stretch; }

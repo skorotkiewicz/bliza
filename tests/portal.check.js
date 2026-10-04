@@ -49,6 +49,18 @@ try {
 	const context = await browser.newContext({ viewport: { width: 1440, height: 1080 } });
 	const page = await context.newPage();
 	const errors = [];
+	async function checkReplyFlags(scope) {
+		const positions=await scope.locator('.reply:visible').evaluateAll((replies)=>replies.map((reply)=>{
+			const flag=reply.querySelector('.report-button').getBoundingClientRect();
+			const author=reply.querySelector('.author-name').getBoundingClientRect();
+			return {width:flag.width,height:flag.height,vertical:Math.abs(flag.y+flag.height/2-author.y-author.height/2),right:Math.abs(flag.right-reply.getBoundingClientRect().right)};
+		}));
+		for(const position of positions) {
+			assert(position.vertical<=4,'Reply flag aligns with its author, not below the text');
+			assert(position.right<=21,'Reply flag stays at the right edge, allowing answer-card padding');
+			assert(position.width>=44 && position.height>=44,'Reply flag retains a usable touch target');
+		}
+	}
 	page.on('pageerror', (error) => errors.push(error.message));
 	page.on('console',(message)=>{if(/hydration/i.test(message.text()))errors.push(message.text());});
 	await page.goto(base);
@@ -121,6 +133,7 @@ try {
 			);
 			assert(layout.submit.top >= layout.field.bottom + 7, 'Submit sits below the textarea');
 			assert(Math.abs(layout.submit.right - layout.field.right) < 1, 'Submit aligns right');
+			await checkReplyFlags(entry);
 			assert.equal(
 				await page.evaluate(() => document.documentElement.scrollWidth),
 				width,
@@ -350,6 +363,7 @@ try {
 		}
 		for(const width of [1440,900,760,390,320]) {
 			await design.setViewportSize({width,height:1080});
+			await checkReplyFlags(design);
 			assert.equal(await design.evaluate(()=>document.documentElement.scrollWidth),width,`${type} ${detail?'detail':'feed'} does not overflow at ${width}px`);
 			if(width===1440 || width===390)await design.screenshot({path:join(directory,`${type}-${detail?'detail':'feed'}-${width}.png`),fullPage:true});
 		}
@@ -371,6 +385,7 @@ try {
 	await design.getByLabel('Twój blip',{exact:true}).fill('Chwila ma swój rytm.');
 	assert.match(await design.locator('.character-count').innerText(),/20\s*\/ 160/,'The postcard counter follows its draft');
 	await design.goto(`${base}${blipURL}`);await design.getByRole('button',{name:'Napisz blipa',exact:true}).click();await design.waitForURL(`${base}/?type=blip#composer`);
+	await design.waitForFunction(()=>document.activeElement?.id==='draft');
 	assert.equal(await design.locator('#draft').evaluate((node)=>node===document.activeElement),true,'Writing from a detail page opens and focuses the right composer');
 	await design.close();
 

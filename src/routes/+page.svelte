@@ -87,7 +87,6 @@
 			pending = false;
 		}
 	}
-	let composeField = $state(null);
 	let imageInput = $state(null);
 	let selectedImage = $state(null);
 	let imagePreview = $state('');
@@ -190,13 +189,12 @@
 		if (entry || (space !== 'mixed' && space !== type)) {
 			await goto(`/?type=${type}#composer`);
 			await tick();
-		}
-		chooseKind(type);
+		} else chooseKind(type);
 		document.getElementById('composer')?.scrollIntoView({
 			behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
 			block: 'center'
 		});
-		composeField?.focus({ preventScroll: true });
+		document.getElementById('draft')?.focus({ preventScroll: true });
 	}
 
 	function submit({ formElement }) {
@@ -468,7 +466,6 @@
 						>{kind === 'question' ? 'Twoje pytanie' : 'Twój blip'}</label
 					><textarea
 						id="draft"
-						bind:this={composeField}
 						bind:value={draft}
 						name={kind === 'question' ? 'title' : 'body'}
 						placeholder={kind === 'question'
