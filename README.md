@@ -1,56 +1,26 @@
-# sv
+# bliza.
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
-
-## Creating a project
-
-If you're seeing this, you've probably already done this step. Congrats!
+A Polish question-and-answer portal mixed with 160-character microblogging, inspired by the old Zapytaj and Blip communities. Built with SvelteKit, Bun and SQLite.
 
 ```sh
-# create a new project
-npx sv create my-app
+bun install
+bun run dev
 ```
 
-To recreate this project with the same configuration:
+Open the URL printed by Vite. Requires Bun 1.3 or newer; SQLite uses `bun:sqlite`, so run through the provided Bun scripts, not Node.
 
 ```sh
-# recreate this project
-bun x sv@1.0.1 create --template minimal --no-types --add prettier --install bun .
+bun run test
+bun run build
+bun run start
 ```
 
-## Adding features
+For production, set `ORIGIN` to the public URL, for example `ORIGIN=http://localhost:3000 bun run start`. To choose a database location, set `DB_PATH=/absolute/path/bliza.sqlite`. The default is `bliza.sqlite` in the working directory. Keep this file and its WAL files on persistent storage and back it up.
 
-Add features to your project with `sv add`:
+## What works
 
-```sh
-npx sv add
-```
+Questions, blips, replies, likes, saved posts, following, nicknames, search, category/tag/user filters, popular and unanswered feeds, pagination. All community data persists in SQLite. The first run adds fictional Polish conversations; it does not re-seed an existing database.
 
-For example, to add Tailwind CSS:
+This is a local prototype, not an authenticated public social network. Each browser gets an isolated, HTTP-only cookie profile. Clearing the cookie loses access to that profile; no password login or account recovery is provided. Do not publish private information. Add authentication and moderation before opening it to the public. The database supports a single app instance.
 
-```sh
-npx sv add tailwindcss
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
-
-## Building
-
-To create a production version of your app:
-
-```sh
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+Mountain photograph from Unsplash. Pixel avatars are drawn locally. No affiliation with Zapytaj or Blip.

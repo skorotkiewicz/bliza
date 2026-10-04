@@ -1,5 +1,12 @@
 node_modules
 
+# Local portal data
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+playwright-report/
+test-results/
+
 # Output
 .output
 .vercel
