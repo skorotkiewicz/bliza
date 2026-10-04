@@ -2,7 +2,6 @@ import { db, data, ApiError } from 'openrails';
 import { randomBytes, randomUUID, createHash, timingSafeEqual } from 'node:crypto';
 import { formatTicket, parseTicket } from './tickets.js';
 
-process.env.OPENRAILS_URL ||= 'http://192.168.0.124:8787';
 export const categories = [['Codzienność','coffee'],['Szkoła i nauka','book'],['Komputery i internet','monitor'],['Muzyka','music'],['Filmy i seriale','film'],['Relacje','heart'],['Podróże','compass'],['Pozostałe','grid']];
 export const approvalRequired = () => process.env.REQUIRE_APPROVAL !== 'false';
 export const digest = (value) => createHash('sha256').update(value).digest('hex');

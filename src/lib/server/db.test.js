@@ -1,8 +1,12 @@
-import { test, expect } from 'bun:test';
+import { test, expect, spyOn } from 'bun:test';
 import { randomUUID, randomBytes } from 'node:crypto';
 import sharp from 'sharp';
+import https from 'node:https';
+import dns from 'node:dns/promises';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import { openStore, digest } from './db.js';
-import { uploadImage, MAX_IMAGE_SIZE, IMAGE_NAME } from './images.js';
+import { uploadImage, MAX_IMAGE_SIZE, IMAGE_NAME, downloadImage, isPublicImageAddress } from './images.js';
 import { formatTicket, parseTicket, MAX_TICKET_SIZE } from './tickets.js';
 
 process.env.SEED_DEMO='false';
@@ -114,4 +118,32 @@ test('raster decoding strips metadata and rejects SVG, spoofed MIME and oversize
 	const bytes=await sharp({create:{width:2,height:2,channels:3,background:'#e16f29'}}).withMetadata({exif:{IFD0:{Artist:'private-location'}}}).jpeg().toBuffer();
 	const prepared=await uploadImage(new File([bytes],'private.jpg',{type:'image/jpeg'}));
 	const meta=await sharp(Buffer.from(prepared.data,'base64')).metadata();expect(meta.format).toBe('webp');expect(meta.exif).toBeUndefined();expect(meta.width).toBe(2);
+});
+
+test('URL images pin public DNS, validate redirects and cap streamed bytes',async()=>{
+	for(const address of ['127.0.0.1','10.0.0.1','169.254.169.254','172.16.0.1','192.168.1.2','100.100.100.200','::1','::ffff:127.0.0.1','fe80::1','fc00::1','2002:7f00:1::','2001:db8::1'])expect(isPublicImageAddress(address)).toBe(false);
+	for(const address of ['8.8.8.8','2606:4700:4700::1111'])expect(isPublicImageAddress(address)).toBe(true);
+	for(const source of ['file:///etc/passwd','http://example.com/a.png','https://user:password@example.com/a.png','https://example.com:8787/a.png'])await expect(downloadImage(source)).rejects.toThrow('HTTPS');
+	const bytes=await sharp({create:{width:2,height:2,channels:3,background:'#dc712a'}}).png().toBuffer();
+	const lookup=spyOn(dns,'lookup').mockImplementation(async(host)=>[{address:host==='private.test'?'127.0.0.1':'8.8.8.8',family:4}]);
+	let replies=[],connections=[];
+	const transport=spyOn(https,'request').mockImplementation((url,options,respond)=>{
+		const request=new EventEmitter();
+		request.destroy=()=>request;
+		request.end=()=>queueMicrotask(()=>options.lookup(url.hostname,{},(err,address,family)=>{
+			if(err){request.emit('error',err);return;}
+			connections.push({address,family,headers:options.headers,agent:options.agent});
+			const reply=replies.shift(),response=new PassThrough();response.statusCode=reply.status||200;response.headers=reply.headers||{'content-type':'image/png'};
+			respond(response);if(!response.destroyed)response.end(reply.body||bytes);
+		}));return request;
+	});
+	try {
+		replies=[{status:302,headers:{location:'https://public.test/final.png'}},{}];
+		const file=await downloadImage('https://public.test/start.png');expect((await uploadImage(file)).data).toBeTruthy();
+		expect(connections.map((entry)=>entry.address)).toEqual(['8.8.8.8','8.8.8.8']);expect(connections[0].agent).toBe(false);expect(connections[0].headers.Authorization).toBeUndefined();
+		connections=[];replies=[{status:302,headers:{location:'https://private.test/secret'}}];
+		await expect(downloadImage('https://public.test/redirect.png')).rejects.toThrow('publicznego');expect(connections).toHaveLength(1);
+		replies=[{body:Buffer.alloc(MAX_IMAGE_SIZE+1)}];await expect(downloadImage('https://public.test/large.png')).rejects.toThrow('5 MB');
+		replies=[{status:302,headers:{location:'/loop'}},{status:302,headers:{location:'/loop'}},{status:302,headers:{location:'/loop'}},{status:302,headers:{location:'/loop'}}];await expect(downloadImage('https://public.test/loop')).rejects.toThrow('przekierowań');
+	}finally{transport.mockRestore();lookup.mockRestore();}
 });

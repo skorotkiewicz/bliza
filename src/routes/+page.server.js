@@ -2,7 +2,7 @@ import { fail, error, isRedirect, isHttpError } from '@sveltejs/kit';
 import { randomUUID } from 'node:crypto';
 import { store, categories, Problem, approvalRequired } from '#lib/server/db.js';
 import { currentUser, actor, sessionCookie, readForm } from '#lib/server/auth.js';
-import { uploadImage } from '#lib/server/images.js';
+import { uploadImage, downloadImage } from '#lib/server/images.js';
 import { MAX_TICKET_SIZE } from '#lib/server/tickets.js';
 
 export async function load(event) {
@@ -35,16 +35,18 @@ const handlers={
 	},
 	publish:async(event)=>{
 		if(Number(event.request.headers.get('content-length'))>6*1024*1024)return fail(413,{error:'Zdjęcie może mieć maksymalnie 5 MB.'});
-		const form=await readForm(event),values=Object.fromEntries(['kind','title','body','category'].map((k)=>[k,text(form,k)]));
-		const {kind,title,body,category}=values;
+		const form=await readForm(event),values=Object.fromEntries(['kind','title','body','category','image_url'].map((k)=>[k,text(form,k)]));
+		const {kind,title,body,category,image_url}=values;
 		if(!['question','blip'].includes(kind)||!categories.some(([n])=>n===category))return fail(400,{error:'Wybierz typ wpisu i kategorię.',values});
 		if(kind==='question'&&(title.length<5||title.length>180))return fail(400,{error:'Pytanie musi mieć od 5 do 180 znaków.',values});
 		if(body.length>(kind==='blip'?160:4000)||(kind==='blip'&&!body))return fail(400,{error:kind==='blip'?'Blip musi mieć od 1 do 160 znaków.':'Opis może mieć maksymalnie 4000 znaków.',values});
 		const id=text(form,'nonce'); if(!uuid(id))return fail(400,{error:'Odśwież formularz przed publikacją.',values});
-		const file=form.get('image');if(file&&(!(file instanceof File)||(file.size&&kind!=='blip')))return fail(400,{error:'Zdjęcia możesz dodawać tylko do blipów.',values});
+		const file=form.get('image');if((image_url && kind!=='blip') || (file&&(!(file instanceof File)||(file.size&&kind!=='blip'))))return fail(400,{error:'Zdjęcia możesz dodawać tylko do blipów.',values});
+		if(file?.size && image_url)return fail(400,{error:'Wybierz plik albo link do zdjęcia, nie oba naraz.',values});
 		try {
 			const {user,token}=await actor(event);if(approvalRequired() && !user.approved)throw new Problem(403,'Poproś moderatora o zatwierdzenie konta w swoim profilu.');
-			const attachment=await uploadImage(file);await store.addPost(token,kind,kind==='question'?title:'',body,category,attachment,Date.now(),id);
+			if(image_url)await store.limit(`image-url:${user.id}`,10);
+			const attachment=await uploadImage(image_url ? await downloadImage(image_url) : file);await store.addPost(token,kind,kind==='question'?title:'',body,category,attachment,Date.now(),id);
 			return {success:kind==='question'?'Pytanie dodane. Teraz czas na odpowiedzi!':'Blip poszedł w świat!'};
 		}catch(err){return fail(err instanceof Problem?err.status:503,{error:err instanceof Problem?err.message:'Nie udało się zapisać wpisu. Spróbuj ponownie; szkic został w formularzu.',values});}
 	},

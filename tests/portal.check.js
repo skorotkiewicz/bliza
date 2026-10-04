@@ -9,15 +9,15 @@ const directory = mkdtempSync(join(tmpdir(), 'bliza-ui-'));
 const port = '4189';
 const base = `http://127.0.0.1:${port}`;
 assert(
-	process.env.OPENRAILS_TOKEN,
-	'Set the server-side OPENRAILS_TOKEN before running the UI check'
+	process.env.OPENRAILS_TOKEN && process.env.OPENRAILS_URL,
+	'Set server-side OPENRAILS_URL and OPENRAILS_TOKEN before running the UI check'
 );
 const adminKey=randomBytes(32).toString('hex');
 const namespace = `bliza_ui_${randomUUID().replaceAll('-', '')}`;
 const server = Bun.spawn([process.execPath, '--no-env-file', 'build/index.js'], {
 	env: {
 		...process.env,
-		OPENRAILS_URL: process.env.OPENRAILS_URL || 'http://192.168.0.124:8787',
+		OPENRAILS_URL: process.env.OPENRAILS_URL,
 		OPENRAILS_NAMESPACE: namespace,
 		BODY_SIZE_LIMIT: '6M',
 		ADMIN:adminKey,SEED_DEMO:'true',REQUIRE_APPROVAL:'true',
@@ -218,7 +218,23 @@ try {
 	await page.locator('.image-preview').waitFor();
 	await page.getByRole('button', { name: 'Usuń wybrane zdjęcie', exact: true }).click();
 	assert.equal(await page.locator('.image-preview').count(), 0, 'Selected image can be removed');
-	await picker.setInputFiles('static/images/mountains.jpg');
+	const imageBytes=Buffer.from(await Bun.file('static/images/mountains.jpg').arrayBuffer()).toString('base64');
+	async function transferToDraft(type,content) {
+		await page.getByLabel('Twój blip',{exact:true}).evaluate((element,{type,content})=>{
+			const transfer=new DataTransfer();
+			if(content.file)transfer.items.add(new File([Uint8Array.from(atob(content.file),(char)=>char.charCodeAt(0))],`${type}.jpg`,{type:'image/jpeg'}));else transfer.setData('text/plain',content.text);
+			element.dispatchEvent(type==='paste'?new ClipboardEvent('paste',{clipboardData:transfer,bubbles:true,cancelable:true}):new DragEvent('drop',{dataTransfer:transfer,bubbles:true,cancelable:true}));
+		},{type,content});
+	}
+	await transferToDraft('paste',{file:imageBytes});await page.locator('.image-preview').waitFor();
+	assert.equal(await picker.evaluate((input)=>input.files[0].name),'paste.jpg','Clipboard image is included in the upload form');
+	assert.equal(await page.getByLabel('Twój blip',{exact:true}).inputValue(),'Krótki blip, długa pamięć. #sprawdzam','Pasting an image preserves the text draft');
+	await transferToDraft('paste',{text:'https://example.com/photo.png'});
+	assert.equal(await page.getByLabel('Zdjęcie z linku HTTPS',{exact:false}).inputValue(),'https://example.com/photo.png','Pasted image link selects URL input');
+	assert.equal(await picker.evaluate((input)=>input.files.length),0,'URL and file selections do not conflict');
+	await transferToDraft('drop',{file:imageBytes});await page.locator('.image-preview').waitFor();
+	assert.equal(await picker.evaluate((input)=>input.files[0].name),'drop.jpg','Dropped image is included in the upload form');
+	assert.equal(await page.getByLabel('Zdjęcie z linku HTTPS',{exact:false}).inputValue(),'','Dropping a file clears the URL source');
 	await page.screenshot({ path: join(directory, 'upload-preview.png') });
 	await page.getByRole('button', { name: 'Blipnij', exact: true }).click();
 	const blip = page

@@ -37,7 +37,7 @@ Generate `ADMIN` with `openssl rand -hex 32`. It must contain 32–256 printable
 - `/admin` handles approvals, reports, hidden content, bans and an audit log. Approval is community consent, not legal-identity verification.
 - File cleanup requires confirmation and removes unreferenced backend files across the OpenRails project, not posts or referenced images.
 
-Blips accept JPG, PNG, GIF or WebP images up to 5 MB. Uploads are resized, stripped of metadata and stored as WebP.
+Add a photo by choosing a file, pasting or dropping it into the blip textarea, or entering a public HTTPS image link. Blips accept JPG, PNG, GIF or WebP images up to 5 MB. Uploads are resized, stripped of metadata and stored as WebP.
 
 ## Production
 

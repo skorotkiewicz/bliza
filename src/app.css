@@ -691,6 +691,7 @@
 		width: 100%;
 		font-size: 12px;
 	}
+	.image-source input { width: 100%; min-height: 44px; font-size: 12px; }
 	.image-attachment {
 		display: flex;
 		align-items: center;

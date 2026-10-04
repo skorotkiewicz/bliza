@@ -83,16 +83,18 @@
 	let selectedImage = $state(null);
 	let imagePreview = $state('');
 	let imageError = $state('');
+	let imageURL = $state(initial()?.image_url || '');
 
 	function clearImage() {
 		if (imagePreview) URL.revokeObjectURL(imagePreview);
 		imagePreview = '';
 		selectedImage = null;
+		imageURL = '';
 		imageError = '';
 		if (imageInput) imageInput.value = '';
 	}
-	function selectImage(event) {
-		const file = event.currentTarget.files?.[0];
+	function selectImage(event) { setImage(event.currentTarget.files?.[0]); }
+	function setImage(file) {
 		if (!file) {
 			clearImage();
 			return;
@@ -105,10 +107,21 @@
 			imageError = 'Wybierz JPG, PNG, GIF lub WebP, maksymalnie 5 MB.';
 			return;
 		}
-		if (imagePreview) URL.revokeObjectURL(imagePreview);
+		clearImage();
+		const transfer = new DataTransfer();transfer.items.add(file);imageInput.files = transfer.files;
 		selectedImage = file;
 		imageError = '';
 		imagePreview = URL.createObjectURL(file);
+	}
+	function setImageURL(value) { clearImage();imageURL=value; }
+	function transferImage(event) {
+		if(kind!=='blip' || pending)return;
+		const transfer=event.clipboardData || event.dataTransfer;
+		const file=[...transfer.files].find((file)=>file.type.startsWith('image/'));
+		if(file){event.preventDefault();setImage(file);return;}
+		const uri=transfer.getData('text/uri-list').split(/\r?\n/).find((line)=>line && !line.startsWith('#'));
+		const text=(uri || transfer.getData('text/plain')).trim();
+		try{const url=new URL(text);if(url.protocol==='https:' && (uri || /\.(jpe?g|png|gif|webp)$/i.test(url.pathname))){event.preventDefault();setImageURL(text);}}catch{}
 	}
 	onDestroy(() => {
 		if (imagePreview) URL.revokeObjectURL(imagePreview);
@@ -404,7 +417,11 @@
 						required
 						minlength={kind === 'question' ? 5 : 1}
 						maxlength={kind === 'question' ? 180 : 160}
-						rows="2"></textarea>
+						rows="2"
+						onpaste={transferImage}
+						ondrop={transferImage}
+						ondragover={(event)=>{if(kind==='blip' && !pending)event.preventDefault();}}
+						aria-describedby={kind==='blip'?'image-help':undefined}></textarea>
 				</div>
 				{#if kind === 'question'}{#if showDescription}<div class="description-field">
 							<label for="description">Dopowiedz coś więcej <span>(opcjonalnie)</span></label
@@ -432,8 +449,9 @@
 								disabled={pending}
 							/></label
 						>
-						<span id="image-help">JPG, PNG, GIF, WebP · do 5 MB</span>
+						<span id="image-help">JPG, PNG, GIF, WebP · do 5 MB. Wklej lub upuść zdjęcie na pole blipa.</span>
 					</div>
+					<div class="description-field image-source"><label for="image-url">Zdjęcie z linku HTTPS <span>(opcjonalnie)</span></label><input id="image-url" type="url" name="image_url" value={imageURL} oninput={(event)=>setImageURL(event.currentTarget.value)} placeholder="https://example.com/image.png" maxlength="2048" disabled={pending} aria-describedby="image-url-help" /><p id="image-url-help" class="field-help">Pobierzemy je przy publikacji.</p></div>
 					{#if imageError}<p class="image-error" role="alert">{imageError}</p>{/if}
 					{#if selectedImage}<div class="image-preview">
 							<img src={imagePreview} alt="Podgląd zdjęcia do blipa" />
@@ -572,19 +590,15 @@
 									rel="noreferrer"
 									><img
 										src={post.image}
-										alt={post.image === '/images/mountains.jpg'
-											? 'Skaliste szczyty Tatr w słońcu nad zieloną doliną'
-											: `Zdjęcie do blipa użytkownika ${post.name}`}
+										alt={`Zdjęcie do blipa użytkownika ${post.name}`}
 										width="1000"
 										height="560"
 										loading="lazy"
 									/><span
 										><Icon
-											name={post.image === '/images/mountains.jpg' ? 'compass' : 'image'}
+											name="image"
 											size={13}
-										/>{post.image === '/images/mountains.jpg'
-											? 'Gdzieś w Tatrach. Z dala od wszystkiego.'
-											: `Zdjęcie od ${post.name}`}</span
+										/>{`Zdjęcie od ${post.name}`}</span
 									></a
 								>{/if}
 						</div>
