@@ -1,5 +1,5 @@
 import { error, isHttpError } from '@sveltejs/kit';
-import { store } from '#lib/server/db.js';
+import { store, Problem } from '#lib/server/db.js';
 
 export async function POST({ request, cookies, url }) {
 	if (request.headers.get('origin') !== url.origin) error(403, 'Bilet odbierzesz tylko na Blizie.');
@@ -14,7 +14,7 @@ export async function POST({ request, cookies, url }) {
 	try {
 		const user = await store.authenticated(cookies.get('bliza_session'));
 		if (!user) error(401, 'Otwórz Blizę ponownie, zanim odbierzesz bilet.');
-		const ticket = await store.issueTicket(user, form.get('replace') === 'yes');
+		const ticket = await store.issueTicket(cookies.get('bliza_session'), form.get('replace') === 'yes');
 		if (!ticket) error(409, 'Masz już bilet. Potwierdź unieważnienie poprzedniego pliku.');
 		return new Response(ticket, {
 			headers: {
@@ -27,6 +27,7 @@ export async function POST({ request, cookies, url }) {
 		});
 	} catch (err) {
 		if (isHttpError(err)) throw err;
+		if (err instanceof Problem) error(err.status,err.message);
 		error(503, 'Nie udało się wydać biletu. Spróbuj ponownie.');
 	}
 }

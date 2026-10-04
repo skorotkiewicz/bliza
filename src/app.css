@@ -1500,6 +1500,8 @@
 		min-height: 36px;
 	}
 	.portal-dialog {
+		max-height: calc(100dvh - 32px);
+		overflow-y: auto;
 		width: min(440px, calc(100% - 32px));
 		border: 1px solid var(--line-strong);
 		border-radius: 8px;
@@ -1729,6 +1731,49 @@
 		font-size: 11px;
 		color: var(--ink-caption);
 	}
+	.approved-badge { display: inline-flex; color: var(--green); margin-left: var(--s1); }
+	.report-button { min-height: 44px; min-width: 44px; color: var(--ink-caption); }
+	.post-header > .report-button { margin-left: auto; }
+	.verification-notice { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); padding: var(--s3) var(--s4); margin-bottom: var(--s4); background: var(--hello-paper); border: 1px solid var(--hello-line); border-radius: 4px; font-size: 11px; }
+	.verification-notice button { color: var(--link); min-height: 44px; }
+	.account-verification, .account-sessions { margin-top: var(--s5); padding-top: var(--s5); border-top: 1px solid var(--line); }
+	.account-verification h3, .account-sessions h3 { font-size: 14px; }
+	.account-verification p, .account-sessions p { font-size: 11px; color: var(--ink-caption); margin-block: var(--s2); }
+	.portal-dialog textarea { width: 100%; margin-bottom: var(--s3); }
+	.verification-code { font-family: 'Courier New', monospace; color: var(--green); }
+	.account-sessions ul { list-style: none; margin: var(--s3) 0; padding: 0; max-height: 240px; overflow-y: auto; }
+	.account-sessions li { display: flex; gap: var(--s3); align-items: center; border-bottom: 1px solid var(--line-faint); padding-block: var(--s3); font-size: 10px; }
+	.account-sessions li > div { flex: 1; min-width: 0; }
+	.account-sessions strong { display: block; overflow-wrap: anywhere; }
+	.account-sessions li span { display: block; color: var(--ink-caption); font-size: 10px; }
+	.account-sessions .ticket-profile-link { margin-top: 0; }
+	.admin-shell { width: min(1160px,100%); padding: var(--s6); margin-inline: auto; }
+	.admin-heading { display: flex; flex-wrap: wrap; gap: var(--s5); justify-content: space-between; align-items: center; margin-bottom: var(--s6); }
+	.admin-heading a { font-size: 12px; }
+	.admin-heading h1 { font-size: 28px; letter-spacing: -.5px; }
+	.admin-heading .ticket-return { padding-inline: var(--s4); }
+	.admin-login { max-width: 440px; margin: var(--s10) auto; padding: var(--s6); }
+	.admin-login h2 { font-size: 20px; }
+	.admin-login p { font-size: 12px; color: var(--ink-caption); margin-block: var(--s4); }
+	.admin-login label, .admin-action label { display: block; font-size: 12px; }
+	.admin-login input { width: 100%; margin-block: var(--s2) var(--s4); }
+	.admin-tabs { display: flex; flex-wrap: wrap; gap: var(--s4); border-bottom: 1px solid var(--line); margin-bottom: var(--s4); }
+	.admin-tabs a { padding-block: var(--s3); min-height: 44px; font-size: 12px; }
+	.admin-tabs .active { color: var(--blip-orange); border-bottom: 2px solid var(--blip-orange); }
+	.admin-list { display: grid; gap: var(--s4); }
+	.admin-row { display: flex; flex-wrap: wrap; gap: var(--s6); padding: var(--s5); }
+	.admin-row-content { min-width: 0; flex: 1 1 300px; overflow-wrap: anywhere; }
+	.admin-row h2 { font-size: 16px; }
+	.admin-row p { font-size: 12px; margin-block: var(--s2); white-space: pre-wrap; }
+	.admin-action { flex: 1 1 240px; min-width: 0; max-width: 360px; }
+	.admin-action input:not([type='checkbox']), .admin-action select { display: block; width: 100%; min-height: 44px; margin-block: var(--s1) var(--s3); background: var(--inset); border: 1px solid var(--line-strong); border-radius: 4px; padding: var(--s2); }
+	.admin-confirm, .portal-dialog form > .admin-confirm { display: flex; align-items: flex-start; gap: var(--s2); font-size: 11px; font-weight: 400; margin-block: var(--s3); }
+	.admin-confirm input { width: 16px; height: 16px; padding: 0; margin: 0; flex-shrink: 0; accent-color: var(--blip-orange); }
+	.admin-maintenance { margin-top: var(--s6); padding: var(--s4); }
+	.admin-maintenance summary { min-height: 44px; cursor: pointer; font-size: 12px; }
+	.admin-maintenance p { font-size: 12px; color: var(--ink-caption); }
+	.admin-empty { padding: var(--s6); color: var(--ink-caption); }
+	.admin-notice { color: var(--green); background: var(--green-paper); padding: var(--s3); margin-block: var(--s4); font-size: 12px; }
 	.community-rules {
 		padding-left: var(--s5);
 		font-size: 13px;

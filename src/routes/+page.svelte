@@ -13,6 +13,11 @@
 	let showDescription = $state(initial()?.kind === 'question' && !!initial()?.body);
 	let category = $state(initial()?.category || 'Codzienność');
 	let pending = $state(false);
+	let postNonce = $state(data.postNonce);
+	let reportDialog;
+	let reportKind = $state('post');
+	let reportId = $state('');
+	function openReport(kind,id) { reportKind=kind;reportId=id;dismissed=true;reportDialog.showModal(); }
 	let dismissed = $state(false);
 	let profileDialog;
 	let aboutDialog;
@@ -169,12 +174,16 @@
 					description = '';
 					showDescription = false;
 					clearImage();
+					postNonce = data.postNonce;
 				}
+				if(result.type==='success' && formElement.getAttribute('name')==='report') reportDialog.close();
+				if(result.type==='success' && result.data?.loggedOut) { profileDialog.close();draft='';description='';clearImage();document.querySelectorAll('.reply-form').forEach((r)=>r.reset());postNonce=data.postNonce;await goto('/',{invalidateAll:true}); }
 				if (result.type === 'success' && formElement.getAttribute('name') === 'profile')
 					profileDialog.close();
 				if (result.type === 'success' && formElement.getAttribute('name') === 'recover') {
 					ticketDialog.close();
 					ticketFileName = '';
+					postNonce = data.postNonce;
 					document.querySelectorAll('.reply-form').forEach((reply) => reply.reset());
 					draft = '';
 					description = '';
@@ -353,6 +362,7 @@
 			<h1>O czym dziś pogadamy<span>?</span></h1>
 			<p>Zadaj pytanie. Podziel się chwilą. Znajdź swoich ludzi.</p>
 		</div>
+		{#if !data.user.approved}<div class="verification-notice"><span>Przed publikacją poproś moderatora o zatwierdzenie konta.</span><button onclick={()=>profileDialog.showModal()}>Otwórz profil<Icon name="arrow" size={14} /></button></div>{/if}
 		<section id="composer" class="composer panel" aria-label="Dodaj pytanie lub blipa">
 			<div class="composer-tabs">
 				<button
@@ -375,7 +385,7 @@
 				enctype="multipart/form-data"
 				use:enhance={submit}
 			>
-				<input type="hidden" name="kind" value={kind} />
+				<input type="hidden" name="kind" value={kind} /><input type="hidden" name="nonce" value={postNonce} />
 				<div class="composer-writing">
 					<Avatar kind={data.user.avatar} size={36} /><label class="sr-only" for="draft"
 						>{kind === 'question' ? 'Twoje pytanie' : 'Twój blip'}</label
@@ -455,7 +465,7 @@
 								>{draft.length}<span> / 160</span></span
 							>{/if}
 					</div>
-					<button class="publish-button" disabled={pending} type="submit"
+					<button class="publish-button" disabled={pending || !data.user.approved} type="submit"
 						>{pending ? 'Chwileczkę…' : kind === 'question' ? 'Zapytaj' : 'Blipnij'}<Icon
 							name="arrow"
 							size={16}
@@ -526,7 +536,7 @@
 								aria-label={`Wpisy ${post.name}`}><Avatar kind={post.avatar} size={40} /></a
 							>
 							<div class="post-byline">
-								<a class="author-name" href={link({ user: post.user_id }, true)}>{post.name}</a>
+								<a class="author-name" href={link({ user: post.user_id }, true)}>{post.name}</a>{#if post.approved}<span class="approved-badge" title="Konto zatwierdzone przez moderatora"><Icon name="check" size={12} /></span>{/if}
 								<div class="post-meta">
 									<time datetime={new Date(post.created).toISOString()}>{ago(post.created)}</time
 									><span>·</span><a href={link({ category: post.category }, true)}
@@ -534,7 +544,7 @@
 									>
 								</div>
 							</div>
-							<span class="post-kind" class:is-blip={post.kind === 'blip'}
+							<button class="report-button" aria-label="Zgłoś wpis" onclick={()=>openReport('post',post.id)}><Icon name="flag" size={15} /></button><span class="post-kind" class:is-blip={post.kind === 'blip'}
 								><Icon
 									name={post.kind === 'question' ? 'question' : 'chat'}
 									size={13}
@@ -598,7 +608,7 @@
 												<a class="author-name" href={link({ user: reply.user_id }, true)}
 													>{reply.name}</a
 												>
-												<p>{@render richText(reply.body)}</p>
+												<p>{@render richText(reply.body)}</p><button class="report-button" aria-label={`Zgłoś odpowiedź ${reply.name}`} onclick={()=>openReport('reply',reply.id)}><Icon name="flag" size={14} /></button>
 											</div>
 										</div>{:else}<p class="first-reply">
 											{post.kind === 'question'
@@ -617,7 +627,7 @@
 											rows="2"
 											placeholder="Dołącz do rozmowy…"></textarea><button
 											class="publish-button"
-											disabled={pending}
+											disabled={pending || !data.user.approved}
 											type="submit">Odpowiedz<Icon name="send" size={14} /></button
 										>
 									</form>
@@ -773,6 +783,8 @@
 			>Zapisz nick<Icon name="check" size={16} /></button
 		>
 	</form>
+	<section class="account-verification"><h3>{data.user.approved?'Konto zatwierdzone':'Poznajmy się przed publikacją.'}</h3><p>Zatwierdzenie moderatora nie oznacza prawnej weryfikacji tożsamości. Nie wysyłaj dokumentów ani danych wrażliwych.</p>{#if !data.user.approved}{#if data.user.verification}<p>Prośba czeka na moderatora. Przekaż mu kod w uzgodnionym kanale: <strong class="verification-code">{data.user.verification.code}</strong></p>{:else}<form method="POST" action="?/verification" name="verification" use:enhance={submit}><label for="verification-note">Kilka słów do moderatora</label><textarea id="verification-note" name="note" required minlength="10" maxlength="500" rows="2" placeholder="Kim jesteś w naszej społeczności? Bez danych wrażliwych."></textarea><button class="ticket-return" disabled={pending}>Poproś o zatwierdzenie konta</button></form>{/if}{/if}</section>
+	<section class="account-sessions"><h3>Gdzie jesteś zalogowany?</h3><ul>{#each data.sessions as session}<li><div><strong>{session.device}</strong><span>{new Date(session.created).toLocaleString('pl-PL')}</span></div>{#if session.current}<span>To urządzenie</span>{:else}<form method="POST" action="?/session" name="session" use:enhance={submit}><input type="hidden" name="id" value={session.id} /><button class="ticket-profile-link" disabled={pending} aria-label={`Wyloguj sesję: ${session.device}`}>Wyloguj</button></form>{/if}</li>{/each}</ul>{#if data.sessions.length>1}<form method="POST" action="?/others" name="others" use:enhance={submit}><label class="admin-confirm"><input type="checkbox" name="confirmed" value="yes" required />Chcę wylogować pozostałe urządzenia.</label><button class="ticket-return" disabled={pending}>Wyloguj inne urządzenia</button></form>{/if}<p>Nowy bilet unieważnia stary plik i wylogowuje inne urządzenia.</p><form method="POST" action="?/logout" name="logout" use:enhance={submit}><label class="admin-confirm"><input type="checkbox" name="confirmed" value="yes" required />Mam zapisany bilet albo świadomie zostawiam ten profil.</label><button class="ticket-return" disabled={pending}>Wyjdź na chwilę</button></form></section>
 	<div class="local-profile-note">
 		<Icon name="ticket" size={20} />
 		<div>
@@ -810,9 +822,9 @@
 					value="yes"
 					required
 					disabled={pending}
-				/>Unieważnij mój poprzedni bilet i wydaj nowy.</label
+				/>Unieważnij mój poprzedni bilet, wyloguj inne urządzenia i wydaj nowy.</label
 			>
-			<p class="field-help">Otwarte sesje na innych urządzeniach pozostaną aktywne.</p>{/if}
+			<p class="field-help">Ta przeglądarka pozostanie zalogowana. Pozostałe sesje przestaną działać.</p>{/if}
 		<button class="publish-button ticket-download" disabled={pending}
 			>Zabierz swój nick do domu<Icon name="download" size={17} /></button
 		>
@@ -856,6 +868,7 @@
 		>
 	</p>
 </dialog>
+<dialog bind:this={reportDialog} class="portal-dialog" aria-labelledby="report-title"><div class="dialog-heading"><h2 id="report-title">Coś tu nie gra?</h2><button class="dialog-close" aria-label="Zamknij zgłoszenie" onclick={()=>reportDialog.close()}><Icon name="close" /></button></div><p>Moderator sprawdzi zgłoszenie. Nie zamieszczaj danych wrażliwych.</p><form method="POST" action="?/report" name="report" use:enhance={submit}><input type="hidden" name="kind" value={reportKind} /><input type="hidden" name="id" value={reportId} /><label for="report-reason">Dlaczego zgłaszasz tę treść?</label><textarea id="report-reason" name="reason" required minlength="5" maxlength="500" rows="3"></textarea>{#if form?.error&&!dismissed}<p class="dialog-error" role="alert">{form.error}</p>{/if}<button class="publish-button" disabled={pending}>Wyślij zgłoszenie</button></form></dialog>
 <dialog bind:this={aboutDialog} class="portal-dialog" aria-labelledby="about-title">
 	<div class="dialog-heading">
 		<h2 id="about-title">Dobry internet zaczyna się od nas.</h2>
@@ -874,7 +887,7 @@
 		<li>Blip to 160 znaków. Dobra rozmowa nie ma limitu.</li>
 	</ol>
 	<p class="field-help">
-		Wersja próbna: bez moderacji. Konto odzyskasz tylko z biletem powrotnym. Nie publikuj poufnych
+		Treści można zgłaszać moderatorowi. Publikacja wymaga zatwierdzenia konta. Konto odzyskasz z biletem powrotnym. Nie publikuj poufnych
 		informacji. Zdjęcie gór: Unsplash. Wpisy startowe są przykładowe.
 	</p>
 	<button class="publish-button" onclick={() => aboutDialog.close()}

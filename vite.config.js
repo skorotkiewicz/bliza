@@ -12,6 +12,7 @@ export default defineConfig(({ command }) => ({
 			},
 
 			adapter: adapter(),
+			csp: { mode: 'auto', directives: { 'default-src':['self'], 'script-src':['self'], 'style-src':['self','unsafe-inline'], 'img-src':['self','blob:'], 'connect-src':['self'], 'object-src':['none'], 'base-uri':['self'], 'frame-ancestors':['none'], 'form-action':['self'] } },
 			paths: {
 				origin: process.env.ORIGIN || (command === 'build' ? 'http://localhost:3000' : undefined)
 			}

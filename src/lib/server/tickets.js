@@ -11,7 +11,7 @@ Nick w dniu wydania: ${user.name}
 Na Blizie kliknij "Mam bilet!" i wybierz ten plik.
 Bilet dziala wielokrotnie, takze po zmianie nicka.
 Nie udostepniaj go: otwiera Twoje konto.
-Nowy bilet uniewaznia poprzedni plik, nie otwarte sesje.
+Nowy bilet uniewaznia poprzedni plik i wylogowuje inne urzadzenia.
 Bez biletu i ciasteczka nie odzyskasz konta.
 
 bliza-ticket-v1:${namespace}:${user.id}:${secret}
@@ -29,15 +29,3 @@ export function parseTicket(text, namespace) {
 	return { id: entries[0][2], secret: entries[0][3] };
 }
 
-// ponytail: bounded, process-local recovery throttle; use a shared limiter if the app scales out.
-const attempts = new Map();
-export function allowRecovery(address, now = Date.now()) {
-	let window = attempts.get(address);
-	if (!window || now - window.start >= 60000) {
-		window = { start: now, count: 0 };
-		attempts.delete(address);
-		attempts.set(address, window);
-		if (attempts.size > 1024) attempts.delete(attempts.keys().next().value);
-	}
-	return ++window.count <= 20;
-}

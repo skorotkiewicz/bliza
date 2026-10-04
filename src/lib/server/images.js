@@ -1,9 +1,9 @@
-import { files } from 'openrails';
+import sharp from 'sharp';
 import { createHash } from 'node:crypto';
 import { store } from './db.js';
 
 export const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
-export const IMAGE_NAME = /^[a-f0-9]{64}\.(jpg|png|gif|webp)$/;
+export const IMAGE_NAME = /^(?:[a-f0-9]{64}|[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})\.(jpg|png|gif|webp)$/;
 export const imageKey = (name) => `${store.namespace}/images/${name}`;
 
 export async function uploadImage(file) {
@@ -37,8 +37,12 @@ export async function uploadImage(file) {
 	} else throw new TypeError('Wybierz zdjęcie w formacie JPG, PNG, GIF lub WebP.');
 	if (file.type && file.type !== type)
 		throw new TypeError('Zawartość zdjęcia nie pasuje do jego formatu.');
-	const name = `${createHash('sha256').update(bytes).digest('hex')}.${extension}`;
-	// ponytail: a failed post write may leave an unreferenced image; hashing reuses it on retry.
-	await files.put(imageKey(name), bytes, type);
-	return `/media/${name}`;
+	let output;
+	try {
+		const image = sharp(bytes, { limitInputPixels: 16777216, animated: true });
+		const metadata = await image.metadata();
+		if (!metadata.pages || metadata.pages === 1) image.rotate();
+		output = await image.resize({ width: 1920, height: 1920, fit: 'inside', withoutEnlargement: true }).webp({ quality: 85 }).toBuffer();
+	} catch { throw new TypeError('Nie możemy odczytać zdjęcia. Limit to 16 mln pikseli.'); }
+	return { data: output.toString('base64'), digest: createHash('sha256').update(output).digest('hex') };
 }
