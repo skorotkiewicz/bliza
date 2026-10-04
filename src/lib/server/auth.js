@@ -14,9 +14,9 @@ export async function currentUser(event) {
 }
 export async function actor(event) {
 	const token=event.cookies.get('bliza_session');
-	const user=await store.authenticated(token);
-	if(!user) throw new Problem(401,'Sesja została wylogowana. Wróć z biletem.');
-	return {user,token};
+	const ctx=await store.context(token);
+	if(!ctx) throw new Problem(401,'Sesja została wylogowana. Wróć z biletem.');
+	return {user:ctx.user,token,ctx};
 }
 export const adminEnabled=()=>typeof process.env.ADMIN==='string' && /^[\x21-\x7e]{32,256}$/.test(process.env.ADMIN);
 export function adminSecretMatches(input) {

@@ -311,7 +311,7 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		const alias={users:'u.id',posts:'p.id',replies:'r.id',reports:'r.id',audit:'id'}[view];
 		const sql=target ? queries[view].replace(' ORDER BY',` WHERE ${alias}=? ORDER BY`) : queries[view];
 		const rows=await read(`${sql} LIMIT 100 OFFSET ?`,...(target?[target]:[]),(page-1)*100);
-		return {view,page,rows:[...rows].map((r)=>({...r,...(r.request ? {request:JSON.parse(r.request)} : {})}))};
+		return {view,page,target,rows:[...rows].map((r)=>({...r,...(r.request ? {request:JSON.parse(r.request)} : {})}))};
 	}
 	async function feed(user,params=new URLSearchParams()) {
 		const view=params.get('view')||'all',filters=[],values=[];

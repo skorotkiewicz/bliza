@@ -29,6 +29,8 @@
 	let ticketMessage = $state('');
 	let replaceTicket = $state(false);
 
+	let profileLoading=$state(false);
+	async function openProfile() { if(profileLoading)return;dismissed=true;profileLoading=true;profileDialog.showModal();try{await invalidateAll();}finally{profileLoading=false;} }
 	function openTicket() {
 		replaceTicket = false;
 		profileDialog?.close();
@@ -255,7 +257,7 @@
 				><Icon name="plus" size={17} /><span>Dodaj wpis</span></button
 			><button
 				class="account-button"
-				onclick={() => profileDialog.showModal()}
+				onclick={openProfile}
 				aria-label="Twój profil"
 				><Avatar kind={data.user.avatar} size={32} /><Icon name="down" size={14} /></button
 			>
@@ -303,7 +305,7 @@
 				<div>
 					<span class="eyebrow">CZEŚĆ, SĄSIEDZIE!</span><button
 						class="profile-name"
-						onclick={() => profileDialog.showModal()}
+						onclick={openProfile}
 						title="Zmień swój nick">{data.user.name}<Icon name="edit" size={12} /></button
 					><span class="profile-status"><span class="online-dot"></span> Twój mały kąt</span>
 				</div>
@@ -364,7 +366,7 @@
 			<h1>O czym dziś pogadamy<span>?</span></h1>
 			<p>Zadaj pytanie. Podziel się chwilą. Znajdź swoich ludzi.</p>
 		</div>
-		{#if !data.user.approved}<div class="verification-notice"><span>Przed publikacją poproś moderatora o zatwierdzenie konta.</span><button onclick={()=>profileDialog.showModal()}>Otwórz profil<Icon name="arrow" size={14} /></button></div>{/if}
+		{#if !data.user.approved}<div class="verification-notice"><span>Przed publikacją poproś moderatora o zatwierdzenie konta.</span><button onclick={openProfile}>Otwórz profil<Icon name="arrow" size={14} /></button></div>{/if}
 		<section id="composer" class="composer panel" aria-label="Dodaj pytanie lub blipa">
 			<div class="composer-tabs">
 				<button
@@ -769,6 +771,8 @@
 			><Icon name="close" /></button
 		>
 	</div>
+	{#if profileLoading}<p class="field-help" role="status">Odświeżamy profil i listę urządzeń…</p>{/if}
+	<fieldset class="profile-fields" disabled={profileLoading || pending}>
 	<p>Wybierz nick, po którym poznają Cię sąsiedzi.</p>
 	<form method="POST" action="?/profile" name="profile" use:enhance={submit}>
 		<label for="nickname">Twój nick</label><input
@@ -800,6 +804,7 @@
 			>
 		</div>
 	</div>
+	</fieldset>
 </dialog>
 <dialog bind:this={ticketDialog} class="portal-dialog ticket-dialog" aria-labelledby="ticket-title">
 	<div class="dialog-heading">

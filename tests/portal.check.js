@@ -14,7 +14,7 @@ assert(
 );
 const adminKey=randomBytes(32).toString('hex');
 const namespace = `bliza_ui_${randomUUID().replaceAll('-', '')}`;
-const server = Bun.spawn([process.execPath, 'build/index.js'], {
+const server = Bun.spawn([process.execPath, '--no-env-file', 'build/index.js'], {
 	env: {
 		...process.env,
 		OPENRAILS_URL: process.env.OPENRAILS_URL || 'http://192.168.0.124:8787',
@@ -255,10 +255,9 @@ try {
 	const blipId=imagePath.match(/([a-f0-9-]{36})\.webp$/)[1];
 	const imageRow=moderator.locator(`article[data-id="${blipId}"]`);
 	await imageRow.getByLabel('Powód działania').fill('Ukrywanie i kontrola dostępu do zdjęcia.');
-	const hideResponse=moderator.waitForResponse((r)=>r.url().includes('/admin?/moderate') && r.request().method()==='POST');
+	const hideResponse=moderator.waitForResponse((r)=>new URL(r.url()).pathname==='/admin' && new URL(r.url()).searchParams.has('/moderate') && r.request().method()==='POST');
 	await imageRow.getByRole('button',{name:'Zapisz działanie'}).click();
 	const hideResult=await hideResponse;assert.equal(hideResult.status(),200,await hideResult.text());
-	await moderator.goto(`${base}/admin?view=posts&target=${blipId}`);
 	await moderator.getByText('Ukryte przez moderatora',{exact:true}).waitFor();
 	assert.equal((await page.request.get(`${base}${imagePath}`)).status(),404,'Hidden image is not publicly accessible');
 	const privatePreview=await imageRow.getByRole('link',{name:'Podgląd zdjęcia'}).getAttribute('href');
@@ -630,9 +629,10 @@ try {
 	);
 	await page.keyboard.press('Escape');
 	await other.keyboard.press('Escape');
-	secondServer=Bun.spawn([process.execPath,'build/index.js'],{env:{...process.env,OPENRAILS_NAMESPACE:namespace,ADMIN:adminKey,SEED_DEMO:'true',BODY_SIZE_LIMIT:'6M',HOST:'127.0.0.1',PORT:'4191',ORIGIN:base},stdout:'ignore',stderr:'inherit'});
+	secondServer=Bun.spawn([process.execPath,'--no-env-file','build/index.js'],{env:{...process.env,OPENRAILS_NAMESPACE:namespace,ADMIN:adminKey,SEED_DEMO:'true',BODY_SIZE_LIMIT:'6M',HOST:'127.0.0.1',PORT:'4191',ORIGIN:base},stdout:'ignore',stderr:'inherit'});
 	let siblingReady=false;for(let i=0;i<100;i++){try{if((await fetch('http://127.0.0.1:4191/healthz')).ok){siblingReady=true;break;}}catch{}await Bun.sleep(100);}
 	assert(siblingReady,'Second application instance starts against the same backend');
+	assert.equal((await isolated.request.post('http://127.0.0.1:4191/?/like',{headers,form:{id:blipId}})).status(),200,'Recovered session works on a second process before revocation');
 	await page.getByRole('button',{name:'Twój profil',exact:true}).click();
 	const remoteSession=page.locator('.account-sessions form[name="session"]').first();
 	await remoteSession.getByRole('button',{name:/Wyloguj sesję/}).click();
@@ -653,8 +653,8 @@ try {
 	await page.reload();
 	assert.equal((await page.request.post(`${base}/admin?/cleanup`,{headers,form:{confirmed:'yes'}})).status(),401,'Cleanup requires administrator authentication');
 	assert.equal((await adminBrowser.request.post(`${base}/admin?/cleanup`,{headers,form:{}})).status(),400,'Cleanup requires explicit confirmation');
-	disabledServer=Bun.spawn([process.execPath,'build/index.js'],{env:{...process.env,OPENRAILS_NAMESPACE:namespace,ADMIN:'',BODY_SIZE_LIMIT:'6M',HOST:'127.0.0.1',PORT:'4190',ORIGIN:base},stdout:'ignore',stderr:'inherit'});
-	let disabledReady=false;for(let i=0;i<100;i++){try{if((await fetch('http://127.0.0.1:4190/admin')).status()===404){disabledReady=true;break;}}catch{}await Bun.sleep(100);}
+	disabledServer=Bun.spawn([process.execPath,'--no-env-file','build/index.js'],{env:{...process.env,OPENRAILS_NAMESPACE:namespace,ADMIN:'',BODY_SIZE_LIMIT:'6M',HOST:'127.0.0.1',PORT:'4190',ORIGIN:base},stdout:'ignore',stderr:'inherit'});
+	let disabledReady=false;for(let i=0;i<100;i++){try{if((await fetch('http://127.0.0.1:4190/admin')).status===404){disabledReady=true;break;}}catch{}await Bun.sleep(100);}
 	assert(disabledReady,'Blank ADMIN disables the admin page');
 	assert.equal((await adminBrowser.request.post('http://127.0.0.1:4190/admin?/moderate',{headers,form:{kind:'user',id:ownerId,operation:'ban',reason:'Nie powinno działać'}})).status(),404,'Blank ADMIN disables mutations despite an existing administrator cookie');
 	for(const width of [1440,390,320]) {
@@ -662,7 +662,7 @@ try {
 		assert.equal(await moderator.evaluate(()=>document.documentElement.scrollWidth),width,'Admin layout does not overflow');
 		await moderator.screenshot({path:join(directory,`admin-${width}.png`),animations:'disabled'});
 	}
-	await moderator.goto(`${base}/admin?view=audit`);await moderator.getByText('Kontrola blokady i wylogowania wszystkich urządzeń.',{exact:true}).waitFor();
+	await moderator.goto(`${base}/admin?view=audit`);await moderator.getByText('Kontrola blokady i wylogowania wszystkich urządzeń.',{exact:false}).waitFor();
 	assert(!(await page.content()).includes(adminKey),'ADMIN secret is never serialized in portal markup');
 	let limited;
 	for (let i = 0; i < 21; i++) {

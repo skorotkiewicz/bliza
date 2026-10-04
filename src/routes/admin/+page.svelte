@@ -25,7 +25,7 @@
 					{#if data.view==='posts'||data.view==='replies'}<p>{row.hidden?'Ukryte przez moderatora':'Widoczne'}</p>{/if}
 					{#if data.view==='audit'}<p>{operations[row.action]||row.action} · {row.kind} / {row.target}</p>{/if}
 				</div>
-				{#if data.view!=='audit'}<form method="POST" action="?/moderate" class="admin-action" use:enhance>
+				{#if data.view!=='audit'}<form method="POST" action={`?/moderate&view=${data.view}&page=${data.page}${data.target?`&target=${encodeURIComponent(data.target)}`:''}`} class="admin-action" use:enhance={()=>({update})=>update({navigate:false})}>
 					<input type="hidden" name="kind" value={data.view==='users'?'user':data.view==='posts'?'post':data.view==='replies'?'reply':'report'} /><input type="hidden" name="id" value={row.id} />
 					<label>Działanie<select name="operation">{#each (data.view==='users'?['approve','reject','unverify','ban','unban','logout']:data.view==='reports'?['resolve']:['hide','restore']) as action}<option value={action}>{operations[action]}</option>{/each}</select></label>
 					<label>Powód działania<input name="reason" required minlength="5" maxlength="500" placeholder="Co sprawdzono lub dlaczego interweniujesz?" /></label>

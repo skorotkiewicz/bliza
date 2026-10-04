@@ -1736,6 +1736,7 @@
 	.post-header > .report-button { margin-left: auto; }
 	.verification-notice { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); padding: var(--s3) var(--s4); margin-bottom: var(--s4); background: var(--hello-paper); border: 1px solid var(--hello-line); border-radius: 4px; font-size: 11px; }
 	.verification-notice button { color: var(--link); min-height: 44px; }
+	.profile-fields { border: 0; margin: 0; padding: 0; min-width: 0; }
 	.native-account { padding: var(--s5); margin-top: var(--s4); }
 	.native-account h2 { font-size: 16px; }
 	.native-account form { margin-top: var(--s4); }
