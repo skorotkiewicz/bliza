@@ -591,8 +591,6 @@
 									><img
 										src={post.image}
 										alt={`Zdjęcie do blipa użytkownika ${post.name}`}
-										width="1000"
-										height="560"
 										loading="lazy"
 									/><span
 										><Icon
