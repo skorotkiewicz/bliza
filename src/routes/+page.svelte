@@ -20,8 +20,10 @@
 	let ticketFileName = $state('');
 	let ticketError = $state('');
 	let ticketMessage = $state('');
+	let replaceTicket = $state(false);
 
 	function openTicket() {
+		replaceTicket = false;
 		profileDialog?.close();
 		dismissed = true;
 		ticketError = '';
@@ -57,6 +59,7 @@
 			anchor.click();
 			anchor.remove();
 			setTimeout(() => URL.revokeObjectURL(url), 1000);
+			replaceTicket = false;
 			ticketMessage = 'Bilet gotowy. Schowaj plik w bezpiecznym miejscu. Do zobaczenia!';
 			await invalidateAll();
 		} catch {
@@ -799,8 +802,14 @@
 	</section>
 	<form method="POST" action="/bilet" onsubmit={downloadTicket}>
 		{#if data.hasTicket}<label class="ticket-replace"
-				><input type="checkbox" name="replace" value="yes" required disabled={pending} />Unieważnij
-				mój poprzedni bilet i wydaj nowy.</label
+				><input
+					type="checkbox"
+					name="replace"
+					bind:checked={replaceTicket}
+					value="yes"
+					required
+					disabled={pending}
+				/>Unieważnij mój poprzedni bilet i wydaj nowy.</label
 			>
 			<p class="field-help">Otwarte sesje na innych urządzeniach pozostaną aktywne.</p>{/if}
 		<button class="publish-button ticket-download" disabled={pending}

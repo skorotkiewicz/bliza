@@ -337,7 +337,22 @@ try {
 	await page.getByRole('button', { name: 'Mam bilet!', exact: true }).click();
 	const machine = page.getByRole('dialog', { name: 'Bilet powrotny.', exact: true });
 	await machine.waitFor();
-	await page.screenshot({ path: join(directory, 'ticket-mobile.png') });
+	await page.screenshot({ path: join(directory, 'ticket-mobile.png'), animations: 'disabled' });
+	await page.setViewportSize({ width: 1440, height: 1080 });
+	await page.screenshot({ path: join(directory, 'ticket-desktop.png'), animations: 'disabled' });
+	await page.setViewportSize({ width: 320, height: 700 });
+	assert(
+		await machine.evaluate((node) => node.scrollWidth <= node.clientWidth),
+		'Ticket machine fits a 320px screen'
+	);
+	await machine.getByLabel('Bilet powrotny w pliku TXT', { exact: true }).focus();
+	assert(
+		await machine
+			.getByLabel('Bilet powrotny w pliku TXT', { exact: true })
+			.evaluate((node) => node === document.activeElement),
+		'Native ticket picker is keyboard reachable'
+	);
+	await page.setViewportSize({ width: 390, height: 844 });
 	assert(
 		await machine.evaluate((node) => node.scrollWidth <= node.clientWidth),
 		'Ticket machine fits the mobile screen'
@@ -433,7 +448,21 @@ try {
 		guestCookie,
 		'Rejected ticket leaves the original session unchanged'
 	);
-	await ticketPicker.setInputFiles(ticketPath);
+	const dropTarget = await ticketPicker.boundingBox();
+	const drag = await isolated.newCDPSession(other);
+	for (const type of ['dragEnter', 'dragOver', 'drop'])
+		await drag.send('Input.dispatchDragEvent', {
+			type,
+			x: dropTarget.x + dropTarget.width / 2,
+			y: dropTarget.y + dropTarget.height / 2,
+			data: { items: [], files: [ticketPath], dragOperationsMask: 1 }
+		});
+	await drag.detach();
+	assert.equal(
+		await ticketPicker.evaluate((node) => node.files[0]?.name),
+		'bilet-powrotny.txt',
+		'Native file drop enters the ticket machine'
+	);
 	await returnMachine.getByRole('button', { name: 'Wracam do siebie', exact: true }).click();
 	await returnMachine.waitFor({ state: 'hidden' });
 	await other.waitForURL(base + '/');
@@ -479,6 +508,7 @@ try {
 	const replacement = await replacementEvent;
 	const replacementPath = join(directory, 'bilet-nowy.txt');
 	await replacement.saveAs(replacementPath);
+	await page.waitForFunction(() => !document.querySelector('[name="replace"]').checked);
 	assert.notEqual(await Bun.file(replacementPath).text(), ticketText);
 	await other.getByRole('button', { name: 'Mam bilet!', exact: true }).click();
 	await ticketPicker.setInputFiles(ticketPath);
@@ -532,6 +562,12 @@ try {
 		'Restored account survives reload'
 	);
 	await page.keyboard.press('Escape');
+	let limited;
+	for (let i = 0; i < 21; i++) {
+		limited = await other.request.post(`${base}/?/recover`, { headers, form: { ticket: 'bad' } });
+		if (limited.status() === 429) break;
+	}
+	assert.equal(limited.status(), 429, 'Repeated return attempts are throttled');
 	await isolated.close();
 	const noJS = await browser.newContext({ javaScriptEnabled: false });
 	const plain = await noJS.newPage();
