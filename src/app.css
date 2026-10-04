@@ -375,13 +375,20 @@
 		font-size: 10px;
 		color: var(--ink-caption);
 	}
+	.breadcrumb > span:first-child { flex-shrink: 0; }
 	.breadcrumb > span:nth-of-type(2) {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		color: var(--ink-soft);
 	}
 	.breadcrumb-date {
 		margin-left: auto;
 	}
 	.ticket-entry {
+		flex-shrink: 0;
+		white-space: nowrap;
 		margin-left: auto;
 		min-height: 44px;
 		font-size: 11px;
@@ -590,6 +597,7 @@
 		min-width: 0;
 	}
 	.feed-intro {
+		overflow-wrap: anywhere;
 		padding-top: 0;
 		margin-bottom: var(--s5);
 	}
@@ -862,6 +870,8 @@
 		margin-bottom: var(--s3);
 	}
 	.feed-heading h2 {
+		min-width: 0;
+		overflow-wrap: anywhere;
 		font-size: 16px;
 		letter-spacing: -0.35px;
 	}

@@ -145,7 +145,6 @@ try {
 	assert.equal(await page.locator('.profile-name').innerText(), 'testowy_sąsiad');
 
 	assert(await page.getByRole('button',{name:'Zapytaj',exact:true}).isDisabled(),'Guests need moderator approval before publishing');
-	const ownerId=new URL(await page.locator('.profile-numbers a').first().getAttribute('href'),base).searchParams.get('user');
 	await page.getByRole('button',{name:'Twój profil',exact:true}).click();
 	await page.getByLabel('Kilka słów do moderatora').fill('Testuję portal z moderatorami naszej społeczności.');
 	await page.getByRole('button',{name:'Poproś o zatwierdzenie konta'}).click();
@@ -156,10 +155,13 @@ try {
 	const adminBrowser=await browser.newContext({viewport:{width:1440,height:1080}});
 	const moderator=await adminBrowser.newPage();moderator.on('pageerror',(error)=>errors.push(error.message));
 	await moderator.goto(`${base}/admin`);
-	assert.equal((await page.request.post(`${base}/admin?/moderate`,{headers:{origin:base,accept:'application/json','x-sveltekit-action':'true'},form:{kind:'user',id:ownerId,operation:'approve',reason:'Bez uprawnień'}})).status(),401,'Ordinary accounts cannot moderate');
 	await moderator.getByLabel('Klucz administratora').fill(adminKey);
 	await moderator.getByRole('button',{name:'Wejdź do pokoju'}).click();
 	await moderator.getByRole('link',{name:'Konta',exact:true}).waitFor();
+	await moderator.getByRole('link',{name:'Konta',exact:true}).click();
+	const ownerId=await moderator.locator('.admin-row').filter({hasText:'testowy_sąsiad'}).getAttribute('data-id');
+	assert(ownerId,'Moderator row exposes the selected account ID');
+	assert.equal((await page.request.post(`${base}/admin?/moderate`,{headers:{origin:base,accept:'application/json','x-sveltekit-action':'true'},form:{kind:'user',id:ownerId,operation:'approve',reason:'Bez uprawnień'}})).status(),401,'Ordinary accounts cannot moderate');
 	await moderator.goto(`${base}/admin?view=users&target=${ownerId}`);
 	const accountRow=moderator.locator(`article[data-id="${ownerId}"]`);
 	await accountRow.getByLabel('Powód działania').fill('Kontakt i kod potwierdzone w testach.');
@@ -196,6 +198,27 @@ try {
 	await post.getByRole('button', { name: 'Usuń z zapisanych', exact: true }).waitFor();
 	await post.locator('summary').click();
 	assert.match(await post.locator('.reply-thread').innerText(), /Tak! I odpowiedzi również/);
+	const questionURL=await post.locator('h3 a').getAttribute('href');
+	assert.match(questionURL,/^\/pytanie\/[a-f0-9-]{36}\/czy-openrails-pamieta-nasze-rozmowy$/);
+	await post.locator('h3 a').click();await page.waitForURL(`${base}${questionURL}`);
+	assert.equal(await page.locator('article.post').count(),1,'Permalink shows only its visible post');
+	assert.equal(await page.title(),'Czy OpenRails pamięta nasze rozmowy? · bliza');
+	assert.equal(await page.locator('link[rel="canonical"]').getAttribute('href'),`${base}${questionURL}`);
+	await post.locator('summary').click();assert(await post.locator('details').evaluate((element)=>element.open),'Replies can be expanded on the detail page');
+	await post.getByRole('button',{name:/Cofnij polubienie/}).click();await post.getByRole('button',{name:/Polub wpis/}).waitFor();
+	await post.getByRole('button',{name:/Polub wpis/}).click();await post.getByRole('button',{name:/Cofnij polubienie/}).waitFor();
+	const stale=await page.request.get(`${base}${questionURL.replace(/[^/]+$/,'stary-tytul')}`,{maxRedirects:0});
+	assert.equal(stale.status(),308,'Stale slugs permanently redirect');assert.equal(stale.headers().location,questionURL);
+	assert.equal((await page.request.get(`${base}${questionURL.replace('/pytanie/','/wpis/')}`)).status(),404,'Wrong post kind does not create another detail page');
+	await post.locator('.post-byline .author-name').click();await page.waitForURL(`${base}/ludzie/testowy_s%C4%85siad`);
+	assert.equal(await page.locator('h1').innerText(),'testowy_sąsiad');
+	assert.equal(await page.locator('link[rel="canonical"]').getAttribute('href'),`${base}/ludzie/testowy_s%C4%85siad`);
+	assert.equal((await page.request.get(`${base}/ludzie/nieistniejacy_nick`)).status(),404,'Missing profiles return 404');
+	assert.equal((await page.request.get(`${base}/pytanie/999999/brak-pytania`)).status(),404,'Missing posts return 404');
+	const deepNoJS=await browser.newContext({javaScriptEnabled:false});await deepNoJS.addCookies(await context.cookies());
+	const deepPage=await deepNoJS.newPage();await deepPage.goto(`${base}${questionURL}`);
+	assert.equal(await deepPage.locator('article.post').count(),1,'Permalink content is server-rendered without JavaScript');await deepNoJS.close();
+
 
 	await page.goto(`${base}/?view=saved`);
 	assert.equal(await page.locator('article.post').count(), 1);
@@ -242,6 +265,8 @@ try {
 		.filter({ hasText: 'Krótki blip, długa pamięć. #sprawdzam' });
 	await blip.waitFor();
 	assert.match(await blip.locator('.post-kind').innerText(), /blip/);
+	const blipURL=await blip.getByRole('link',{name:'Przejdź do wpisu',exact:true}).getAttribute('href');
+	assert.match(blipURL,/^\/wpis\/[a-f0-9-]{36}\/krotki-blip-dluga-pamiec-sprawdzam$/);
 	const imagePath = await blip.locator('.post-photo img').getAttribute('src');
 	assert.match(imagePath, /^\/media\/[a-f0-9-]{36}\.webp$/);
 	const image = await page.request.get(`${base}${imagePath}`);
@@ -276,6 +301,7 @@ try {
 	const hideResult=await hideResponse;assert.equal(hideResult.status(),200,await hideResult.text());
 	await moderator.getByText('Ukryte przez moderatora',{exact:true}).waitFor();
 	assert.equal((await page.request.get(`${base}${imagePath}`)).status(),404,'Hidden image is not publicly accessible');
+	assert.equal((await page.request.get(`${base}${blipURL}`)).status(),404,'Hidden posts cannot be reached through permalinks');
 	const privatePreview=await imageRow.getByRole('link',{name:'Podgląd zdjęcia'}).getAttribute('href');
 	assert.equal((await adminBrowser.request.get(`${base}${privatePreview}`)).status(),200,'Moderator retains authorized preview');
 	assert.equal((await page.request.get(`${base}${privatePreview}`)).status(),401,'Ordinary profiles cannot preview hidden media');
@@ -662,6 +688,8 @@ try {
 	assert.equal((await page.request.post(`${base}/?/like`,{headers,form:{id:blipId}})).status(),401,'Banned account cannot mutate');
 	assert.equal((await page.request.get(`${base}${imagePath}`)).status(),404,'Banned author images are inaccessible');
 	assert.equal((await page.request.post(`${base}/?/recover`,{headers,multipart:{ticket:{name:'return.txt',mimeType:'text/plain',buffer:Buffer.from(await Bun.file(replacementPath).text())}}})).status(),401,'Banned account cannot recover');
+	assert.equal((await adminBrowser.request.get(`${base}${questionURL}`)).status(),404,'Banned authors have no public post detail page');
+	assert.equal((await adminBrowser.request.get(`${base}/ludzie/s%C4%85siad_z_biletem`)).status(),404,'Banned profiles are not publicly accessible');
 	await accountRow.getByLabel('Działanie').selectOption('unban');await accountRow.getByLabel('Powód działania').fill('Kończymy test blokady konta.');await accountRow.getByRole('button',{name:'Zapisz działanie'}).click();
 	await moderator.getByText(/Aktywne/).waitFor();
 	assert.equal((await page.request.post(`${base}/?/like`,{headers,form:{id:blipId}})).status(),401,'Unbanning does not resurrect revoked sessions');
@@ -709,6 +737,46 @@ try {
 	await plain.waitForLoadState('networkidle');
 	assert.match(await plain.locator('article.post').first().innerText(), /bez JavaScript/);
 	await noJS.close();
+
+	const seoPage=await context.newPage();seoPage.on('pageerror',(error)=>errors.push(error.message));await seoPage.goto(base);
+	const ownerName=await seoPage.locator('.profile-name').innerText();
+	const {openStore}=await import('../src/lib/server/db.js'),{db}=await import('openrails');
+	const seoStore=openStore(namespace);await seoStore.init();
+	const [owner]=await seoStore.read('SELECT id,name FROM users WHERE name=?',ownerName);
+	await db.transaction({puts:Array.from({length:22},(_,index)=>seoStore.put('posts',randomUUID(),{user_id:owner.id,kind:'question',title:index===0?'W'.repeat(180):`Pytanie do sprawdzenia paginacji ${index+1}`,body:'Strony publicznego kanału.',category:'Codzienność',image:null,created:Date.now()-index,tags:['seo_paginacja']}))});
+	await seoPage.goto(`${base}/?tag=seo_paginacja`);assert.equal(await seoPage.locator('article.post').count(),20);
+	const longQuestionURL=await seoPage.locator('article.post').first().locator('h3 a').getAttribute('href');
+	await seoPage.goto(`${base}${longQuestionURL}`);await seoPage.setViewportSize({width:320,height:844});
+	assert.equal(await seoPage.evaluate(()=>document.documentElement.scrollWidth),320,'Long detail headings stay within narrow screens');
+	await seoPage.screenshot({path:join(directory,'question-320.png')});
+	await seoPage.setViewportSize({width:1440,height:1080});await seoPage.goto(`${base}/?tag=seo_paginacja`);
+
+	const nextPage=seoPage.getByRole('navigation',{name:'Strony wpisów'}).getByRole('link',{name:'Następna →'});
+	assert.equal(await nextPage.getAttribute('href'),'/strona/2?tag=seo_paginacja');
+	await nextPage.click();await seoPage.waitForURL(`${base}/strona/2?tag=seo_paginacja`);
+	assert.equal(await seoPage.locator('article.post').count(),2,'Numbered page retains its tag filter');
+	assert.equal(await seoPage.locator('link[rel="canonical"]').getAttribute('href'),`${base}/strona/2?tag=seo_paginacja`);
+	assert.equal(await seoPage.getByRole('link',{name:'← Poprzednia'}).getAttribute('href'),'/?tag=seo_paginacja');
+	const queryPage=await seoPage.request.get(`${base}/?tag=seo_paginacja&page=2`,{maxRedirects:0});assert.equal(queryPage.status(),308);assert.equal(queryPage.headers().location,'/strona/2?tag=seo_paginacja');
+	const firstPage=await seoPage.request.get(`${base}/strona/1?tag=seo_paginacja`,{maxRedirects:0});assert.equal(firstPage.status(),308);assert.equal(firstPage.headers().location,'/?tag=seo_paginacja');
+	const beyond=await seoPage.request.get(`${base}/strona/999?tag=seo_paginacja`,{maxRedirects:0});assert.equal(beyond.status(),308);assert.equal(beyond.headers().location,'/strona/2?tag=seo_paginacja');
+	assert.equal((await seoPage.request.get(`${base}/strona/0`)).status(),404);
+	const ownerURL=`/ludzie/${encodeURIComponent(ownerName)}`;
+	await seoPage.goto(`${base}${ownerURL}?tag=seo_paginacja`);
+	assert.equal(await seoPage.getByRole('link',{name:'Następna →'}).getAttribute('href'),`${ownerURL}/strona/2?tag=seo_paginacja`);
+	await seoPage.getByRole('link',{name:'Następna →'}).click();await seoPage.waitForURL(`${base}${ownerURL}/strona/2?tag=seo_paginacja`);
+	assert.equal(await seoPage.locator('article.post').count(),2);
+	for(const name of await seoPage.locator('.post-byline .author-name').allInnerTexts())assert.equal(name,ownerName);
+	const numberedNoJS=await browser.newContext({javaScriptEnabled:false});await numberedNoJS.addCookies(await context.cookies());
+	const numberedPage=await numberedNoJS.newPage();await numberedPage.goto(`${base}${ownerURL}/strona/2?tag=seo_paginacja`);
+	assert.equal(await numberedPage.locator('article.post').count(),2,'Profile pagination is server-rendered without JavaScript');await numberedNoJS.close();
+	const renamed='profil_seo_'+'w'.repeat(13);
+	await seoPage.getByRole('button',{name:'Twój profil',exact:true}).click();await seoPage.getByLabel('Twój nick',{exact:true}).fill(renamed);
+	await seoPage.getByRole('button',{name:'Zapisz nick',exact:true}).click();await seoPage.waitForURL(`${base}/ludzie/${renamed}`);
+	assert.equal(await seoPage.locator('h1').innerText(),renamed,'Renaming from your public profile navigates to the current nickname');
+	await seoPage.setViewportSize({width:320,height:844});assert.equal(await seoPage.evaluate(()=>document.documentElement.scrollWidth),320,'Long nicknames do not overflow profile pages');
+	await seoPage.screenshot({path:join(directory,'profile-320.png')});
+	assert.equal((await seoPage.request.get(`${base}${ownerURL}`)).status(),404,'Profile paths use current nicknames only');await seoPage.close();
 	assert.deepEqual(errors, [], 'No browser runtime errors');
 	console.log(
 		`PASS: production UI, OpenRails writes/uploads, ticket download/recovery/rotation, validation, CSRF, profile isolation, keyboard and responsive checks. Namespace: ${namespace}. Screenshots: ${directory}`

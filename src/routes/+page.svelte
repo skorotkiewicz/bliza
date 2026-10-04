@@ -4,6 +4,7 @@
 	import { onDestroy, untrack } from 'svelte';
 	import Icon from '#lib/Icon.svelte';
 	import Avatar from '#lib/Avatar.svelte';
+	import { postPath, profilePath, feedPath } from '#lib/urls.js';
 
 	let { data, form } = $props();
 	const initial = () => form?.values;
@@ -130,8 +131,9 @@
 	let filters = $derived(data.filters);
 	let view = $derived(filters.view || 'all');
 	let filtered = $derived(filters.q || filters.category || filters.tag || filters.user);
+	let entry = $derived(data.detail ? data.posts[0] : null);
 	let feedTitle = $derived(
-		filters.q
+		entry ? 'Rozmowa' : data.profile ? `Wpisy ${data.profile.name}` : filters.q
 			? `Wyniki dla „${filters.q}”`
 			: filters.category ||
 					(filters.tag
@@ -152,7 +154,7 @@
 		params.delete('page');
 		for (const [key, value] of Object.entries(changes))
 			value === null || value === '' ? params.delete(key) : params.set(key, value);
-		return params.size ? `/?${params}` : '/';
+		return feedPath(params, 1, reset ? null : data.profile);
 	}
 
 	function ago(time) {
@@ -185,6 +187,7 @@
 		dismissed = false;
 		return async ({ result, update }) => {
 			try {
+				if(result.type==='redirect'){profileDialog.close();await goto(result.location,{invalidateAll:true});return;}
 				await update({ navigate: false });
 				if (result.type === 'success' && formElement.getAttribute('name') === 'publish') {
 					draft = '';
@@ -216,11 +219,10 @@
 </script>
 
 <svelte:head>
-	<title>bliza · pytaj, pisz, bądź blisko</title>
-	<meta
-		name="description"
-		content="Dobre pytania i zwykłe rozmowy. Bliza to polska społeczność inspirowana internetem sprzed algorytmów. Zadaj pytanie albo napisz blipa."
-	/>
+	<title>{data.seo.title}</title>
+	<meta name="description" content={data.seo.description} />
+	<link rel="canonical" href={data.seo.canonical} />
+	{#if data.seo.noindex}<meta name="robots" content="noindex, follow" />{/if}
 	<meta name="theme-color" content="#f8f7f3" />
 </svelte:head>
 
@@ -294,7 +296,7 @@
 
 <div class="container breadcrumb">
 	<span>Jesteś u siebie</span><Icon name="chevron" size={12} /><span
-		>{filtered
+		>{entry ? (entry.kind==='question'?'Pytanie':'Blip') : data.profile ? data.profile.name : filtered
 			? 'Odkrywaj'
 			: view === 'saved'
 				? 'Zapisane'
@@ -324,7 +326,7 @@
 				</div>
 			</div>
 			<div class="profile-numbers">
-				<a href={link({ user: data.user.id }, true)}
+				<a href={profilePath(data.user)}
 					><strong>{data.stats.mine}</strong><span>wpisy</span></a
 				><a href="/?view=following"
 					><strong>{data.stats.following}</strong><span>obserwowani</span></a
@@ -376,8 +378,8 @@
 	<div class="main-column">
 		<div class="feed-intro">
 			<div class="intro-kicker"><span class="orange-dash"></span> DOBRZE BYĆ MIĘDZY LUDŹMI</div>
-			<h1>O czym dziś pogadamy<span>?</span></h1>
-			<p>Zadaj pytanie. Podziel się chwilą. Znajdź swoich ludzi.</p>
+			<h1>{#if entry}{entry.title || `Blip użytkownika ${entry.name}`}{:else if data.profile}{data.profile.name}{:else}O czym dziś pogadamy<span>?</span>{/if}</h1>
+			<p>{entry ? `Rozmowa z ${entry.name}.` : data.profile ? `Pytania i blipy użytkownika ${data.profile.name}.` : 'Zadaj pytanie. Podziel się chwilą. Znajdź swoich ludzi.'}</p>
 		</div>
 		{#if data.approvalRequired && !data.user.approved}<div class="verification-notice"><span>Przed publikacją poproś moderatora o zatwierdzenie konta.</span><button onclick={openProfile}>Otwórz profil<Icon name="arrow" size={14} /></button></div>{/if}
 		<section id="composer" class="composer panel" aria-label="Dodaj pytanie lub blipa">
@@ -554,14 +556,14 @@
 					>
 						<div class="post-header">
 							<a
-								href={link({ user: post.user_id }, true)}
+								href={profilePath(post)}
 								class="avatar-link"
 								aria-label={`Wpisy ${post.name}`}><Avatar kind={post.avatar} size={40} /></a
 							>
 							<div class="post-byline">
-								<a class="author-name" href={link({ user: post.user_id }, true)}>{post.name}</a>{#if post.approved}<span class="approved-badge" role="img" aria-label="Konto zatwierdzone przez moderatora" title="Konto zatwierdzone przez moderatora"><Icon name="check" size={12} /></span>{/if}
+								<a class="author-name" href={profilePath(post)}>{post.name}</a>{#if post.approved}<span class="approved-badge" role="img" aria-label="Konto zatwierdzone przez moderatora" title="Konto zatwierdzone przez moderatora"><Icon name="check" size={12} /></span>{/if}
 								<div class="post-meta">
-									<time datetime={new Date(post.created).toISOString()}>{ago(post.created)}</time
+									<a href={postPath(post)} aria-label="Przejdź do wpisu"><time datetime={new Date(post.created).toISOString()}>{ago(post.created)}</time></a
 									><span>·</span><a href={link({ category: post.category }, true)}
 										>{post.category}</a
 									>
@@ -577,11 +579,7 @@
 						<div class="post-content">
 							{#if post.title}<h3>
 									<a
-										href={`#replies-${post.id}`}
-										onclick={() => {
-											const detail = document.getElementById(`replies-${post.id}`);
-											if (detail) detail.open = true;
-										}}>{post.title}</a
+										href={postPath(post)}>{post.title}</a
 									>
 								</h3>{/if}{#if post.body}<p>{@render richText(post.body)}</p>{/if}{#if post.image}<a
 									class="post-photo"
@@ -622,7 +620,7 @@
 									{#each post.replies as reply}<div class="reply">
 											<Avatar kind={reply.avatar} size={28} />
 											<div>
-												<a class="author-name" href={link({ user: reply.user_id }, true)}
+												<a class="author-name" href={profilePath(reply)}
 													>{reply.name}</a
 												>
 												<p>{@render richText(reply.body)}</p><button class="report-button" aria-label={`Zgłoś odpowiedź ${reply.name}`} onclick={()=>openReport('reply',reply.id)}><Icon name="flag" size={14} /></button>
@@ -684,9 +682,9 @@
 					</div>{/each}
 			</div>
 			{#if data.total > 20}<nav class="pagination" aria-label="Strony wpisów">
-					{#if data.page > 1}<a href={link({ page: data.page - 1 })}>← Poprzednia</a>{/if}<span
+					{#if data.page > 1}<a href={feedPath(filters, data.page - 1, data.profile)}>← Poprzednia</a>{/if}<span
 						>Strona {data.page} z {Math.ceil(data.total / 20)}</span
-					>{#if data.page * 20 < data.total}<a href={link({ page: data.page + 1 })}>Następna →</a
+					>{#if data.page * 20 < data.total}<a href={feedPath(filters, data.page + 1, data.profile)}>Następna →</a
 						>{/if}
 				</nav>{:else if data.posts.length}<div class="feed-end">
 					<span></span><Icon name="smile" size={18} /><span></span>
@@ -736,11 +734,11 @@
 			</div>
 			<div class="people-list">
 				{#each data.people as person}<div class="person">
-						<a href={link({ user: person.id }, true)} aria-label={`Wpisy ${person.name}`}
+						<a href={profilePath(person)} aria-label={`Wpisy ${person.name}`}
 							><Avatar kind={person.avatar} size={36} /></a
 						>
 						<div class="person-info">
-							<a href={link({ user: person.id }, true)}>{person.name}</a><span
+							<a href={profilePath(person)}>{person.name}</a><span
 								>{person.contributions}
 								{person.contributions === 1 ? 'raz w rozmowie' : 'razy w rozmowach'}</span
 							>

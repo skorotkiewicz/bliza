@@ -311,7 +311,7 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 	async function feed(user,params=new URLSearchParams()) {
 		const view=params.get('view')||'all',filters=[],values=[];
 		if(['question','blip'].includes(params.get('type'))) {filters.push('p.kind=?');values.push(params.get('type'));}
-		for(const [param,column] of [['category','p.category'],['user','p.user_id']]) if(params.get(param)){filters.push(`${column}=?`);values.push(params.get(param));}
+		for(const [param,column] of [['category','p.category'],['user','p.user_id'],['post','p.id']]) if(params.get(param)){filters.push(`${column}=?`);values.push(params.get(param));}
 		if(params.get('q')) {filters.push("(p.title LIKE ? ESCAPE '\\' OR p.body LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\')");const q=`%${params.get('q').slice(0,200).replace(/[\\%_]/g,'\\$&')}%`; values.push(q,q,q);}
 		if(params.get('tag')){filters.push('EXISTS(SELECT 1 FROM tags WHERE post_id=p.id AND tag=?)');values.push(params.get('tag').toLocaleLowerCase('pl'));}
 		if(view==='unanswered')filters.push("p.kind='question' AND NOT EXISTS(SELECT 1 FROM replies WHERE post_id=p.id)");

@@ -8,6 +8,7 @@ import { PassThrough } from 'node:stream';
 import { openStore, digest } from './db.js';
 import { uploadImage, MAX_IMAGE_SIZE, IMAGE_NAME, downloadImage, isPublicImageAddress } from './images.js';
 import { formatTicket, parseTicket, MAX_TICKET_SIZE } from './tickets.js';
+import { postPath, profilePath, feedPath } from '../urls.js';
 
 process.env.SEED_DEMO='false';
 process.env.REQUIRE_APPROVAL='true';
@@ -146,4 +147,16 @@ test('URL images pin public DNS, validate redirects and cap streamed bytes',asyn
 		replies=[{body:Buffer.alloc(MAX_IMAGE_SIZE+1)}];await expect(downloadImage('https://public.test/large.png')).rejects.toThrow('5 MB');
 		replies=[{status:302,headers:{location:'/loop'}},{status:302,headers:{location:'/loop'}},{status:302,headers:{location:'/loop'}},{status:302,headers:{location:'/loop'}}];await expect(downloadImage('https://public.test/loop')).rejects.toThrow('przekierowań');
 	}finally{transport.mockRestore();lookup.mockRestore();}
+});
+
+test('readable post and profile URLs keep identity and pagination filters',()=>{
+	expect(postPath({id:'1',kind:'question',title:'Zażółć gęślą jaźń?'})).toBe('/pytanie/1/zazolc-gesla-jazn');
+	expect(postPath({id:'2',kind:'blip',body:'☕ #DzieńDobry!'})).toBe('/wpis/2/dziendobry');
+	expect(postPath({id:'3',kind:'blip',body:'🌲'})).toBe('/wpis/3/wpis');
+	const profile={id:'author-id',name:'sąsiad'};
+	expect(profilePath(profile)).toBe('/ludzie/s%C4%85siad');
+	expect(feedPath({type:'question',page:'7'},2)).toBe('/strona/2?type=question');
+	expect(feedPath({user:profile.id,tag:'kot',page:'7'},2,profile)).toBe('/ludzie/s%C4%85siad/strona/2?tag=kot');
+	expect(feedPath({user:profile.id},1,profile)).toBe(profilePath(profile));
+	expect(feedPath({},1)).toBe('/');
 });
