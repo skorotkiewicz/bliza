@@ -262,7 +262,7 @@
 {#snippet replyThread(post)}
 	<div class="reply-thread">
 		{#each post.replies as reply}<div class="reply">
-				<Avatar kind={reply.avatar} size={28} />
+				<Avatar name={reply.name} size={28} />
 				<div>
 					<a class="author-name" href={profilePath(reply)}
 						>{reply.name}</a
@@ -329,7 +329,7 @@
 				class="account-button"
 				onclick={openProfile}
 				aria-label="Twój profil"
-				><Avatar kind={data.user.avatar} size={32} /><Icon name="down" size={14} /></button
+				><Avatar name={data.user.name} size={32} /><Icon name="down" size={14} /></button
 			>
 		</div>
 	</div>
@@ -371,7 +371,7 @@
 	<aside class="left-sidebar" aria-label="Twoja przestrzeń i kategorie">
 		<section class="profile-panel panel">
 			<div class="profile-top">
-				<Avatar kind={data.user.avatar} size={44} />
+				<Avatar name={data.user.name} size={44} />
 				<div>
 					<span class="eyebrow">CZEŚĆ, SĄSIEDZIE!</span><button
 						class="profile-name"
@@ -462,7 +462,7 @@
 			>
 				<input type="hidden" name="kind" value={kind} /><input type="hidden" name="nonce" value={postNonce} />
 				<div class="composer-writing">
-					<Avatar kind={data.user.avatar} size={36} /><label class="sr-only" for="draft"
+					<Avatar name={data.user.name} size={36} /><label class="sr-only" for="draft"
 						>{kind === 'question' ? 'Twoje pytanie' : 'Twój blip'}</label
 					><textarea
 						id="draft"
@@ -611,7 +611,7 @@
 							<a
 								href={profilePath(post)}
 								class="avatar-link"
-								aria-label={`Wpisy ${post.name}`}><Avatar kind={post.avatar} size={space === 'question' && !entry ? 28 : 40} /></a
+								aria-label={`Wpisy ${post.name}`}><Avatar name={post.name} size={space === 'question' && !entry ? 28 : 40} /></a
 							>
 							<div class="post-byline">
 								<a class="author-name" href={profilePath(post)}>{post.name}</a>{#if post.approved}<span class="approved-badge" role="img" aria-label="Konto zatwierdzone przez moderatora" title="Konto zatwierdzone przez moderatora"><Icon name="check" size={12} /></span>{/if}
@@ -752,7 +752,7 @@
 			<div class="people-list">
 				{#each data.people as person}<div class="person">
 						<a href={profilePath(person)} aria-label={`Wpisy ${person.name}`}
-							><Avatar kind={person.avatar} size={36} /></a
+							><Avatar name={person.name} size={36} /></a
 						>
 						<div class="person-info">
 							<a href={profilePath(person)}>{person.name}</a><span

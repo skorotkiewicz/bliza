@@ -49,6 +49,10 @@ try {
 	const context = await browser.newContext({ viewport: { width: 1440, height: 1080 } });
 	const page = await context.newPage();
 	const errors = [];
+	const avatarPattern = (locator) => locator.evaluate((svg) => ({
+		background: svg.style.background,
+		pixels: [...svg.querySelectorAll('rect')].map((pixel) => ['x', 'y', 'fill'].map((attribute) => pixel.getAttribute(attribute)))
+	}));
 	async function checkReplyFlags(scope) {
 		const positions=await scope.locator('.reply:visible').evaluateAll((replies)=>replies.map((reply)=>{
 			const flag=reply.querySelector('.report-button').getBoundingClientRect();
@@ -66,6 +70,11 @@ try {
 	await page.goto(base);
 	await page.waitForLoadState('networkidle');
 	assert.equal(await page.locator('article.post').count(), 9, 'Seeded feed');
+	assert.notDeepEqual(
+		await avatarPattern(page.locator('#post-1 .avatar-link .avatar')),
+		await avatarPattern(page.locator('#post-2 .avatar-link .avatar')),
+		'Different seeded nicknames generate different pixel portraits'
+	);
 	const favicon = new URL(await page.locator('link[rel="icon"]').getAttribute('href'), base);
 	assert.equal(favicon.origin, base, 'The favicon is a same-origin asset, not a CSP-blocked data URL');
 	assert(await page.evaluate(async () => {
@@ -162,6 +171,9 @@ try {
 	await page.getByRole('button', { name: 'Zapisz nick' }).click();
 	await page.locator('dialog[open]').waitFor({ state: 'hidden' });
 	assert.equal(await page.locator('.profile-name').innerText(), 'testowy_sąsiad');
+	const ownAvatar = await avatarPattern(page.locator('.account-button .avatar'));
+	assert.deepEqual(await avatarPattern(page.locator('.profile-top .avatar')), ownAvatar, 'Header and profile use the same name-seeded avatar at different sizes');
+	assert.deepEqual(await avatarPattern(page.locator('#composer .avatar')), ownAvatar, 'The composer uses the same generated portrait');
 
 	assert(await page.getByRole('button',{name:'Zapytaj',exact:true}).isDisabled(),'Guests need moderator approval before publishing');
 	await page.getByRole('button',{name:'Twój profil',exact:true}).click();
@@ -217,6 +229,9 @@ try {
 	await post.getByRole('button', { name: 'Usuń z zapisanych', exact: true }).waitFor();
 	await post.locator('summary').click();
 	assert.match(await post.locator('.reply-thread').innerText(), /Tak! I odpowiedzi również/);
+	assert.deepEqual(await avatarPattern(page.locator('.account-button .avatar')), ownAvatar, 'The portrait is stable after a reload');
+	assert.deepEqual(await avatarPattern(post.locator('.avatar-link .avatar')), ownAvatar, 'The author uses their name-seeded portrait');
+	assert.deepEqual(await avatarPattern(post.locator('.reply .avatar').last()), ownAvatar, 'Replies use the same portrait');
 	const questionURL=await post.locator('h3 a').getAttribute('href');
 	assert.match(questionURL,/^\/pytanie\/[a-f0-9-]{36}\/czy-openrails-pamieta-nasze-rozmowy$/);
 	await post.locator('h3 a').click();await page.waitForURL(`${base}${questionURL}`);
@@ -239,6 +254,7 @@ try {
 	const deepNoJS=await browser.newContext({javaScriptEnabled:false});await deepNoJS.addCookies(await context.cookies());
 	const deepPage=await deepNoJS.newPage();await deepPage.goto(`${base}${questionURL}`);
 	assert.equal(await deepPage.locator('article.post').count(),1,'Permalink content is server-rendered without JavaScript');
+	assert.deepEqual(await avatarPattern(deepPage.locator('.account-button .avatar')), ownAvatar, 'SSR generates the same portrait without JavaScript');
 	await deepPage.getByLabel('Twoja odpowiedź',{exact:true}).fill('Odpowiedź z kartki, bez JavaScript.');await deepPage.getByRole('button',{name:'Odpowiedz',exact:true}).click();await deepPage.waitForLoadState('networkidle');
 	assert(await deepPage.getByText('Odpowiedź z kartki, bez JavaScript.',{exact:true}).isVisible(),'Native reply forms work on the question sheet');await deepNoJS.close();
 
@@ -840,10 +856,12 @@ try {
 	const numberedNoJS=await browser.newContext({javaScriptEnabled:false});await numberedNoJS.addCookies(await context.cookies());
 	const numberedPage=await numberedNoJS.newPage();await numberedPage.goto(`${base}${ownerURL}/strona/2?tag=seo_paginacja`);
 	assert.equal(await numberedPage.locator('article.post').count(),2,'Profile pagination is server-rendered without JavaScript');await numberedNoJS.close();
+	const beforeRenameAvatar = await avatarPattern(seoPage.locator('.account-button .avatar'));
 	const renamed='profil_seo_'+'w'.repeat(13);
 	await seoPage.getByRole('button',{name:'Twój profil',exact:true}).click();await seoPage.getByLabel('Twój nick',{exact:true}).fill(renamed);
 	await seoPage.getByRole('button',{name:'Zapisz nick',exact:true}).click();await seoPage.waitForURL(`${base}/ludzie/${renamed}`);
 	assert.equal(await seoPage.locator('h1').innerText(),renamed,'Renaming from your public profile navigates to the current nickname');
+	assert.notDeepEqual(await avatarPattern(seoPage.locator('.account-button .avatar')), beforeRenameAvatar, 'Renaming immediately updates the generated avatar');
 	await seoPage.setViewportSize({width:320,height:844});assert.equal(await seoPage.evaluate(()=>document.documentElement.scrollWidth),320,'Long nicknames do not overflow profile pages');
 	await seoPage.screenshot({path:join(directory,'profile-320.png')});
 	assert.equal((await seoPage.request.get(`${base}${ownerURL}`)).status(),404,'Profile paths use current nicknames only');await seoPage.close();
