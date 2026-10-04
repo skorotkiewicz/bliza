@@ -836,13 +836,15 @@ try {
 	assert.equal((await optionalContext.request.post(`${optionalBase}/?/reply`,{headers,form:{id:targetPost,body:answerBody}})).status(),200);
 	await notificationPage.clock.runFor(30001);await notificationPage.locator('.notification-count').waitFor();await notificationPage.locator('.notifications > summary').click();
 	await notificationPage.getByRole('button',{name:/wspomina Cię w odpowiedzi/}).click();await notificationPage.waitForURL(/#answer-/);
-	assert(await notificationPage.locator('.reply:target').getByText(answerBody,{exact:true}).isVisible(),'Reply notifications jump to the exact visible answer');
+	const targetedAnswer=notificationPage.locator(new URL(notificationPage.url()).hash);await targetedAnswer.waitFor();
+	assert(await targetedAnswer.getByText(answerBody,{exact:true}).isVisible(),'Reply notifications jump to the exact visible answer');
+	await notificationPage.waitForFunction(()=>document.activeElement?.id===location.hash.slice(1));
 	assert.equal((await (await context.request.get(`${base}/notifications`)).json()).unread,0);
 	assert.equal((await optionalContext.request.post(`${optionalBase}/?/reply`,{headers,form:{id:targetPost,body:`@${recipientName} Wzmianka bez JavaScript.`}})).status(),200);
 	const nativeNotifications=await browser.newContext({javaScriptEnabled:false});await nativeNotifications.addCookies(await context.cookies());
 	const nativeNotificationPage=await nativeNotifications.newPage();await nativeNotificationPage.goto(base);await nativeNotificationPage.locator('.notifications > summary').click();
 	await nativeNotificationPage.locator('.notification-item').filter({hasText:'Wzmianka bez JavaScript.'}).click();await nativeNotificationPage.waitForURL(/#answer-/);
-	assert(await nativeNotificationPage.locator('.reply:target').isVisible(),'Native notification forms open the exact answer without JavaScript');await nativeNotifications.close();
+	assert(await nativeNotificationPage.locator(new URL(nativeNotificationPage.url()).hash).isVisible(),'Native notification forms open the exact answer without JavaScript');await nativeNotifications.close();
 	const anonymousNotifications=await browser.newContext();const deniedNotifications=await anonymousNotifications.request.get(`${base}/notifications`);
 	assert.equal(deniedNotifications.status(),401);assert.equal(deniedNotifications.headers()['set-cookie'],undefined,'Polling never creates a replacement session');await anonymousNotifications.close();
 	await notificationPage.close();await optionalContext.close();

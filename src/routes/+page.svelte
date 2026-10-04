@@ -231,7 +231,12 @@
 		dismissed = false;
 		return async ({ result, update }) => {
 			try {
-				if(result.type==='redirect'){profileDialog.close();await goto(result.location,{invalidateAll:true});return;}
+				if(result.type==='redirect'){
+					profileDialog.close();await goto(result.location,{invalidateAll:true});
+					const anchor=new URL(result.location,location.href).hash.slice(1);
+					if(anchor.startsWith('answer-'))document.getElementById(anchor)?.focus({preventScroll:true});
+					return;
+				}
 				await update({ navigate: false });
 				if (result.type === 'success' && formElement.classList.contains('reply-form')) formElement.reset();
 				if (result.type === 'success' && formElement.getAttribute('name') === 'publish') {
@@ -290,7 +295,7 @@
 
 {#snippet replyThread(post)}
 	<div class="reply-thread">
-		{#each post.replies as reply}<div class="reply" id={`answer-${reply.id}`}>
+		{#each post.replies as reply}<div class="reply" id={`answer-${reply.id}`} tabindex="-1">
 				<Avatar name={reply.name} size={28} />
 				<div>
 					<div class="reply-heading"><span><a class="author-name" href={profilePath(reply)}>{reply.name}</a>{#if reply.approved}<span class="approved-badge" role="img" aria-label="Konto zatwierdzone przez moderatora" title="Konto zatwierdzone przez moderatora"><Icon name="check" size={12} /></span>{/if}</span><time datetime={new Date(reply.created).toISOString()} title={new Date(reply.created).toLocaleString('pl-PL')}>{ago(reply.created)}</time></div>

@@ -1770,10 +1770,10 @@
 	.notification-panel > header { padding: var(--s4); border-bottom: 1px solid var(--line); }
 	.notification-panel h2 { font-size: 16px; }
 	.notification-panel header > span, .notification-item time { font-size: 10px; color: var(--ink-caption); }
-	.notification-item { display: flex; align-items: flex-start; gap: var(--s3); padding: var(--s4); width: 100%; min-height: 44px; text-align: left; border-bottom: 1px solid var(--line-faint); }
+	.notification-item { display: flex; justify-content: flex-start; align-items: flex-start; gap: var(--s3); padding: var(--s4); width: 100%; min-height: 44px; text-align: left; border-bottom: 1px solid var(--line-faint); }
 	.notification-item.unread { background: var(--hello-paper); }
 	.notification-item:hover { background: var(--inset); }
-	.notification-item > span { min-width: 0; }
+	.notification-item > span { min-width: 0; flex: 1; }
 	.notification-message, .notification-preview, .notification-item time { display: block; overflow-wrap: anywhere; }
 	.notification-message { font-size: 12px; }
 	.notification-preview { margin-block: var(--s1); font-size: 11px; color: var(--ink-soft); }
@@ -2309,6 +2309,6 @@
 		.write-button > span { display: none; }
 	}
 
-	.post .reply:target { outline: 2px solid var(--hello-line); outline-offset: 4px; }
+	.post .reply:target, .post .reply:focus { outline: 2px solid var(--hello-line); outline-offset: 4px; }
 
 }

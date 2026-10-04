@@ -250,7 +250,7 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 	const notificationFrom = `FROM notifications n JOIN users u ON u.id=n.actor_id JOIN posts p ON p.id=n.post_id LEFT JOIN replies r ON r.id=n.reply_id
 		WHERE n.user_id=? AND (n.reply_id IS NULL OR r.id IS NOT NULL)`;
 	const notificationSelect = `SELECT n.*,u.name,p.kind,p.title,p.body AS post_body,COALESCE(r.body,NULLIF(p.body,''),p.title) AS preview `;
-	const notificationHref = (row) => postPath({id: row.post_id, kind: row.kind, title: row.title, body: row.post_body}) + (row.reply_id ? `#answer-${row.reply_id}` : '');
+	const notificationHref = (row) => postPath({id: row.post_id, kind: row.kind, title: row.title, body: row.post_body}) + (row.reply_id ? `?answer=${row.reply_id}#answer-${row.reply_id}` : '');
 	async function notifications(token) {
 		const ctx = await required(token);
 		const [rows, counts] = await Promise.all([
@@ -371,7 +371,17 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 			EXISTS(SELECT 1 FROM likes WHERE post_id=p.id AND user_id=?) AS liked,
 			EXISTS(SELECT 1 FROM bookmarks WHERE post_id=p.id AND user_id=?) AS saved
 			FROM posts p JOIN users u ON u.id=p.user_id ${where} ORDER BY ${view==='popular'?'likes DESC,':''}p.created DESC,p.id DESC LIMIT 20 OFFSET ?`,user,user,...values,(page-1)*20);
-		await Promise.all(posts.map(async(p)=>{p.replies=[...await read('SELECT r.*,u.name,u.avatar,(SELECT approved FROM accounts WHERE id=u.id) AS approved FROM replies r JOIN users u ON u.id=r.user_id WHERE post_id=? ORDER BY r.created,r.id LIMIT 100',p.id)];}));
+		const answer=params.get('post') ? params.get('answer') : null;
+		if(answer)safeId(answer);
+		await Promise.all(posts.map(async(p)=>{
+			const replySelect='SELECT r.*,u.name,u.avatar,(SELECT approved FROM accounts WHERE id=u.id) AS approved FROM replies r JOIN users u ON u.id=r.user_id';
+			p.replies=[...await read(`${replySelect} WHERE post_id=? ORDER BY r.created,r.id LIMIT 100`,p.id)];
+			if(answer && !p.replies.some((reply)=>reply.id===answer)) {
+				const [target]=await read(`${replySelect} WHERE r.post_id=? AND r.id=?`,p.id,answer);
+				if(target)p.replies.push(target);
+				p.replies.sort((a,b)=>a.created-b.created || (a.id>b.id)-(a.id<b.id));
+			}
+		}));
 		return {posts:[...posts],total,page};
 	}
 	return {namespace,collections,init,read,check,put,context,notifications,openNotification,authenticated,visitor,issueTicket,recoverTicket,rename,addPost,reply,toggle,sessionList,revokeSession,revokeOthers,verification,report,moderate,adminData,feed,limit};

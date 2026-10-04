@@ -23,12 +23,12 @@ export async function load(event) {
 			params.set('user',profile.id);params.set('page',profileRoute[2] || '1');
 		}
 		if(pageRoute)params.set('page',pageRoute[1]);
-		if(postRoute){for(const key of [...params.keys()])params.delete(key);params.set('post',postRoute[2]);}
+		if(postRoute){for(const key of [...params.keys()])params.delete(key);params.set('post',postRoute[2]);if(event.url.searchParams.get('answer'))params.set('answer',event.url.searchParams.get('answer'));}
 		const user=await currentUser(event);
 		const feed=await store.feed(user.id,params),post=postRoute?feed.posts[0]:null;
 		if(postRoute && (!post || post.kind!==(postRoute[1]==='pytanie'?'question':'blip')))error(404,'Nie znaleziono wpisu.');
 		const canonicalPath=post?postPath(post):feedPath(params,feed.page,profile);
-		if(event.request.method==='GET' && event.url.pathname!==canonicalPath.split('?')[0])redirect(308,canonicalPath);
+		if(event.request.method==='GET' && event.url.pathname!==canonicalPath.split('?')[0])redirect(308,canonicalPath+(post && params.get('answer')?`?answer=${encodeURIComponent(params.get('answer'))}`:''));
 		const [counts,trending,people,stats,ticket,sessions,notifications]=await Promise.all([
 			store.read('SELECT category,COUNT(*) AS n FROM posts GROUP BY category'),
 			store.read('SELECT tag,COUNT(*) AS count FROM tags GROUP BY tag ORDER BY count DESC,tag LIMIT 6'),
@@ -45,7 +45,7 @@ export async function load(event) {
 		const seo={title:`${title}${pageLabel}${post || profile?' · bliza':''}`,description:description.slice(0,160),canonical:new URL(canonicalPath,event.url.origin).href,noindex:!post && (Boolean(params.get('q')) || ['saved','following'].includes(params.get('view')))};
 		params.delete('post');
 		return {user,profile,detail:Boolean(post),seo,approvalRequired:approvalRequired(),...feed,postNonce:randomUUID(),sessions,notifications,hasTicket:Boolean(ticket),filters:Object.fromEntries(params),categories:categories.map(([name,icon])=>({name,icon,count:counts.find((r)=>r.category===name)?.n||0})),trending:[...trending],people:[...people],stats:stats[0]};
-	} catch(err) { if(isRedirect(err)||isHttpError(err))throw err;error(503,'OpenRails jest niedostępny lub wymaga aktualizacji API transakcji. Sprawdź konfigurację serwera.'); }
+	} catch(err) { if(isRedirect(err)||isHttpError(err))throw err;if(err instanceof Problem)error(err.status,err.message);error(503,'OpenRails jest niedostępny lub wymaga aktualizacji API transakcji. Sprawdź konfigurację serwera.'); }
 }
 const text=(form,name)=>typeof form.get(name)==='string'?form.get(name).trim():'';
 const uuid=(id)=>/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(id);

@@ -1,4 +1,5 @@
 import { test, expect, spyOn } from 'bun:test';
+import { db } from 'openrails';
 import { randomUUID, randomBytes } from 'node:crypto';
 import sharp from 'sharp';
 import https from 'node:https';
@@ -175,7 +176,7 @@ test.skipIf(!process.env.OPENRAILS_TOKEN)('mention notifications are atomic, pri
 		await store.rename(author.token,'autor'); await store.rename(recipient.token,'koza'); await store.rename(outsider.token,'łąka.jpg');
 		const id = randomUUID();
 		const publish = () => store.addPost(author.token,'question','@koza Gdzie pogadamy?','@koza. @autor email@koza.pl @nieistniejący','Codzienność',null,Date.now(),id);
-		await publish(); await publish();
+		await Promise.all([publish(), publish()]);
 		const initial = await store.notifications(recipient.token);
 		expect(initial.unread).toBe(1); expect(initial.items).toHaveLength(1);
 		expect((await store.notifications(author.token)).items).toHaveLength(0);
@@ -203,5 +204,16 @@ test.skipIf(!process.env.OPENRAILS_TOKEN)('mention notifications are atomic, pri
 		await store.rename(author.token,'koza.');
 		await store.reply(recipient.token,id,'@koza. To dokładny nick, nie końcowa kropka.');
 		expect((await store.notifications(author.token)).unread).toBe(1);
+		const deepReply=await store.reply(author.token,id,'@koza Wzmianka w długiej rozmowie.');
+		await db.transaction({puts:Array.from({length:101},(_,index)=>store.put('replies',randomUUID(),{post_id:id,user_id:author.user.id,body:'Odpowiedź w dużym wątku.',created:Date.now()-(index+1)*1000}))});
+		expect((await store.feed(recipient.user.id,new URLSearchParams({post:id}))).posts[0].replies).toHaveLength(100);
+		const deepThread=(await store.feed(recipient.user.id,new URLSearchParams({post:id,answer:deepReply}))).posts[0];
+		expect(deepThread.replies.some((reply)=>reply.id===deepReply)).toBe(true);
+		const recipientPolicy = await store.collections.accounts.get(recipient.user.id);
+		await store.collections.accounts.put(recipient.user.id,{...recipientPolicy,banned:true});
+		const notificationCount = await store.collections.notifications.query().count();
+		await store.reply(author.token,id,'@koza Ta wzmianka nie powiadomi zablokowanego konta.');
+		expect(await store.collections.notifications.query().count()).toBe(notificationCount);
+		await expect(store.notifications(recipient.token)).rejects.toThrow('Sesja');
 	} finally { if(previous === undefined) delete process.env.REQUIRE_APPROVAL; else process.env.REQUIRE_APPROVAL = previous; }
 });
