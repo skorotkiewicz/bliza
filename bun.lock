@@ -4,6 +4,9 @@
   "workspaces": {
     "": {
       "name": "bliza",
+      "dependencies": {
+        "openrails": "^0.1.0",
+      },
       "devDependencies": {
         "@playwright/test": "^1.63.0",
         "@sveltejs/adapter-auto": "^8.0.0",
@@ -139,6 +142,8 @@
     "nanoid": ["nanoid@3.3.19", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-Y2tUNy4ouw6tq5oDSKeQYGOyhkUBhNOcGV/02KC+6kd9eDGqdZd++mjMiIDilrBYvjEnCYvVtsuHCuP+okSfug=="],
 
     "obug": ["obug@2.2.1", "", {}, "sha512-XrsrhT5sybtKI6wakr2SPOlGZWWYbUXZ7a0jT8/QOeAPau+1X/bSegNe5YR75oJmEZQbKningirmGOEJCIk61Q=="],
+
+    "openrails": ["openrails@0.1.0", "", {}, "sha512-vblYeAOC+FLO1tLQeatgoZ1Wii1acdhjl0P5qKxpo+tzdX7GAwuXZ936kTtlQz++c31AenxkWlZ9PTBROCSWVA=="],
 
     "picocolors": ["picocolors@1.1.1", "", {}, "sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA=="],
 
