@@ -43,6 +43,37 @@ try {
 	await page.goto(base);
 	await page.waitForLoadState('networkidle');
 	assert.equal(await page.locator('article.post').count(), 9, 'Seeded feed');
+	const contrast = await page.evaluate(() => {
+		const canvas = document.createElement('canvas');
+		canvas.width = canvas.height = 1;
+		const context = canvas.getContext('2d');
+		const style = getComputedStyle(document.documentElement);
+		const luminance = (token) => {
+			context.fillStyle = style.getPropertyValue(token).trim();
+			context.fillRect(0, 0, 1, 1);
+			const rgb = [...context.getImageData(0, 0, 1, 1).data].slice(0, 3).map((v) => {
+				v /= 255;
+				return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+			});
+			return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+		};
+		return [
+			['--ink', '--sheet'],
+			['--ink-caption', '--paper'],
+			['--ink-muted', '--sheet'],
+			['--blip-orange', '--sheet'],
+			['--blip-orange', '--blip-paper'],
+			['--blip-orange', '--hello-paper'],
+			['--link', '--sheet'],
+			['--green', '--green-paper']
+		].map(([text, background]) => {
+			const a = luminance(text);
+			const b = luminance(background);
+			return { text, background, ratio: (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) };
+		});
+	});
+	for (const pair of contrast)
+		assert(pair.ratio >= 4.5, `AA text contrast: ${pair.text} on ${pair.background}`);
 	await page.screenshot({ path: join(directory, 'desktop.png') });
 	await page.getByRole('button', { name: 'Twój profil', exact: true }).click();
 	await page.getByLabel('Twój nick', { exact: true }).fill('testowy_sąsiad');

@@ -75,12 +75,13 @@
 		return async ({ result, update }) => {
 			try {
 				await update({ navigate: false });
-				if (result.type === 'success' && formElement.name === 'publish') {
+				if (result.type === 'success' && formElement.getAttribute('name') === 'publish') {
 					draft = '';
 					description = '';
 					showDescription = false;
 				}
-				if (result.type === 'success' && formElement.name === 'profile') profileDialog.close();
+				if (result.type === 'success' && formElement.getAttribute('name') === 'profile')
+					profileDialog.close();
 			} finally {
 				pending = false;
 			}
