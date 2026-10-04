@@ -262,37 +262,37 @@
 {/snippet}
 
 {#snippet replyThread(post)}
-								<div class="reply-thread">
-									{#each post.replies as reply}<div class="reply">
-											<Avatar kind={reply.avatar} size={28} />
-											<div>
-												<a class="author-name" href={profilePath(reply)}
-													>{reply.name}</a
-												>
-												<p>{@render richText(reply.body)}</p><button class="report-button" aria-label={`Zgłoś odpowiedź ${reply.name}`} onclick={()=>openReport('reply',reply.id)}><Icon name="flag" size={14} /></button>
-											</div>
-										</div>{:else}<p class="first-reply">
-											{post.kind === 'question'
-												? 'Znasz odpowiedź? Bądź pierwszą osobą, która pomoże.'
-												: 'Tu zaczyna się rozmowa. Napisz coś miłego.'}
-										</p>{/each}
-									<form method="POST" action="?/reply" use:enhance={submit} class="reply-form">
-										<input type="hidden" name="id" value={post.id} />{#if entry && data.approvalRequired && !data.user.approved}<p class="reply-approval">Przed odpowiedzią potrzebujesz zatwierdzenia konta. <button type="button" onclick={openProfile}>Otwórz profil</button></p>{/if}<label
-											class:sr-only={!entry}
-											for={`reply-${post.id}`}>Twoja odpowiedź</label
-										><textarea
-											id={`reply-${post.id}`}
-											name="body"
-											required
-											maxlength="2000"
-											rows={entry && space === 'question' ? 4 : 2}
-											placeholder={space === 'question' ? 'Podziel się tym, co wiesz. Trochę kontekstu zawsze pomaga…' : 'Dołącz do rozmowy…'}></textarea><button
-											class="publish-button"
-											disabled={pending || (data.approvalRequired && !data.user.approved)}
-											type="submit">{pending ? 'Chwileczkę…' : 'Odpowiedz'}<Icon name="send" size={14} /></button
-										>
-									</form>
-								</div>
+	<div class="reply-thread">
+		{#each post.replies as reply}<div class="reply">
+				<Avatar kind={reply.avatar} size={28} />
+				<div>
+					<a class="author-name" href={profilePath(reply)}
+						>{reply.name}</a
+					>
+					<p>{@render richText(reply.body)}</p><button class="report-button" aria-label={`Zgłoś odpowiedź ${reply.name}`} onclick={()=>openReport('reply',reply.id)}><Icon name="flag" size={14} /></button>
+				</div>
+			</div>{:else}<p class="first-reply">
+				{post.kind === 'question'
+					? 'Znasz odpowiedź? Bądź pierwszą osobą, która pomoże.'
+					: 'Tu zaczyna się rozmowa. Napisz coś miłego.'}
+			</p>{/each}
+		<form method="POST" action="?/reply" use:enhance={submit} class="reply-form">
+			<input type="hidden" name="id" value={post.id} />{#if entry && data.approvalRequired && !data.user.approved}<p class="reply-approval">Przed odpowiedzią potrzebujesz zatwierdzenia konta. <button type="button" onclick={openProfile}>Otwórz profil</button></p>{/if}<label
+				class:sr-only={!entry}
+				for={`reply-${post.id}`}>Twoja odpowiedź</label
+			><textarea
+				id={`reply-${post.id}`}
+				name="body"
+				required
+				maxlength="2000"
+				rows={entry && space === 'question' ? 4 : 2}
+				placeholder={space === 'question' ? 'Podziel się tym, co wiesz. Trochę kontekstu zawsze pomaga…' : 'Dołącz do rozmowy…'}></textarea><button
+				class="publish-button"
+				disabled={pending || (data.approvalRequired && !data.user.approved)}
+				type="submit">{pending ? 'Chwileczkę…' : 'Odpowiedz'}<Icon name="send" size={14} /></button
+			>
+		</form>
+	</div>
 {/snippet}
 
 {#snippet nativeAccount()}
@@ -313,12 +313,13 @@
 			>{@render brand()}<span class="brand-tagline">pytaj. pisz. bądź blisko.</span></a
 		>
 		<form method="GET" action="/" class="search-form" role="search">
+			{#if space !== 'mixed'}<input type="hidden" name="type" value={space} />{/if}
 			<Icon name="search" size={19} /><label class="sr-only" for="search"
-				>Szukaj pytań, blipów i ludzi</label
+				>{space === 'question' ? 'Szukaj pytań' : space === 'blip' ? 'Szukaj blipów' : 'Szukaj pytań, blipów i ludzi'}</label
 			><input
 				id="search"
 				name="q"
-				placeholder="Szukaj pytań, blipów, ludzi…"
+				placeholder={space === 'question' ? 'Czego chcesz się dowiedzieć?' : space === 'blip' ? 'Szukaj chwil, tematów, #tagów…' : 'Szukaj pytań, blipów, ludzi…'}
 				value={filters.q || ''}
 				maxlength="200"
 			/><button aria-label="Szukaj" type="submit"><Icon name="arrow" size={17} /></button>
@@ -570,7 +571,7 @@
 		<section id="feed" class="feed" aria-labelledby={!entry ? 'feed-title' : undefined} aria-label={entry ? 'Rozmowa' : undefined}>
 			{#if !entry}<div class="feed-heading">
 				<h2 id="feed-title" class:sr-only={!!entry}>{feedTitle}</h2>
-				{#if !entry}<label class="sort-control"
+				{#if !entry && space !== 'question'}<label class="sort-control"
 					><Icon name="rss" size={13} /><span class="sr-only">Kolejność wpisów</span><select
 						value={view === 'popular' ? 'popular' : 'all'}
 						onchange={(e) =>
@@ -587,12 +588,12 @@
 				<span
 					>{data.total}
 					{data.total === 1
-						? 'wpis'
+						? (space === 'question' ? 'pytanie' : space === 'blip' ? 'blip' : 'wpis')
 						: data.total % 10 >= 2 &&
 							  data.total % 10 <= 4 &&
 							  (data.total % 100 < 12 || data.total % 100 > 14)
-							? 'wpisy'
-							: 'wpisów'}</span
+							? (space === 'question' ? 'pytania' : space === 'blip' ? 'blipy' : 'wpisy')
+							: (space === 'question' ? 'pytań' : space === 'blip' ? 'blipów' : 'wpisów')}</span
 				>
 			</div>
 			{/if}{#if !entry && filtered}<div class="filter-summary">

@@ -204,7 +204,9 @@ try {
 	assert.equal(await page.locator('article.post').count(),1,'Permalink shows only its visible post');
 	assert.equal(await page.title(),'Czy OpenRails pamięta nasze rozmowy? · bliza');
 	assert.equal(await page.locator('link[rel="canonical"]').getAttribute('href'),`${base}${questionURL}`);
-	await post.locator('summary').click();assert(await post.locator('details').evaluate((element)=>element.open),'Replies can be expanded on the detail page');
+	assert.equal(await post.locator('details').count(),0,'Detail replies do not hide behind a feed accordion');
+	assert(await post.locator('.conversation').isVisible(),'Answers are visible on the question sheet');
+	assert.equal(await page.locator('#composer').count(),0,'Reading a question does not show a new-post composer');
 	await post.getByRole('button',{name:/Cofnij polubienie/}).click();await post.getByRole('button',{name:/Polub wpis/}).waitFor();
 	await post.getByRole('button',{name:/Polub wpis/}).click();await post.getByRole('button',{name:/Cofnij polubienie/}).waitFor();
 	const stale=await page.request.get(`${base}${questionURL.replace(/[^/]+$/,'stary-tytul')}`,{maxRedirects:0});
@@ -217,7 +219,9 @@ try {
 	assert.equal((await page.request.get(`${base}/pytanie/999999/brak-pytania`)).status(),404,'Missing posts return 404');
 	const deepNoJS=await browser.newContext({javaScriptEnabled:false});await deepNoJS.addCookies(await context.cookies());
 	const deepPage=await deepNoJS.newPage();await deepPage.goto(`${base}${questionURL}`);
-	assert.equal(await deepPage.locator('article.post').count(),1,'Permalink content is server-rendered without JavaScript');await deepNoJS.close();
+	assert.equal(await deepPage.locator('article.post').count(),1,'Permalink content is server-rendered without JavaScript');
+	await deepPage.getByLabel('Twoja odpowiedź',{exact:true}).fill('Odpowiedź z kartki, bez JavaScript.');await deepPage.getByRole('button',{name:'Odpowiedz',exact:true}).click();await deepPage.waitForLoadState('networkidle');
+	assert(await deepPage.getByText('Odpowiedź z kartki, bez JavaScript.',{exact:true}).isVisible(),'Native reply forms work on the question sheet');await deepNoJS.close();
 
 
 	await page.goto(`${base}/?view=saved`);
@@ -325,6 +329,51 @@ try {
 	await page.goto(`${base}/?view=unanswered`);
 	for (const replies of await page.locator('article.post summary strong').allInnerTexts())
 		assert.equal(replies, '0');
+
+	const design=await context.newPage();design.on('pageerror',(error)=>errors.push(error.message));design.on('console',(message)=>{if(/hydration/i.test(message.text()))errors.push(message.text());});
+	for(const [path,type,detail] of [['/?type=question','qa',false],['/?type=blip','blip',false],[questionURL,'qa',true],[blipURL,'blip',true]]) {
+		await design.goto(`${base}${path}`);await design.waitForLoadState('networkidle');
+		assert(await design.locator(`main.${type}-space`).count(),'Each section has its own composition');
+		assert.equal(await design.locator('h1').count(),1,'Each experience has one page title');
+		assert.equal(await design.locator('#composer').count(),detail?0:1,'Publishing and reading have different priorities');
+		if(detail) {
+			assert(await design.locator('.conversation .reply-form').isVisible(),'Detail conversations and reply forms are always visible');
+			assert.equal(await design.locator('.sort-control').count(),0,'Details do not carry unrelated feed controls');
+		} else {
+			assert.equal(await design.locator('.composer-tabs').count(),0,'The section composer has one clear purpose');
+			assert.equal(await design.locator('#composer input[name="kind"]').inputValue(),type==='qa'?'question':'blip','Direct navigation initializes the correct composer');
+			if(type==='qa') {
+				assert.equal(await design.locator('.question-answer-count').count(),await design.locator('article.post').count(),'Question rows expose their answer counts');
+				const row=design.locator('article.post').first();
+				assert((await row.locator('h3').boundingBox()).y<(await row.locator('.post-header').boundingBox()).y,'Question titles lead the scanning order');
+			}
+		}
+		for(const width of [1440,900,760,390,320]) {
+			await design.setViewportSize({width,height:1080});
+			assert.equal(await design.evaluate(()=>document.documentElement.scrollWidth),width,`${type} ${detail?'detail':'feed'} does not overflow at ${width}px`);
+			if(width===1440 || width===390)await design.screenshot({path:join(directory,`${type}-${detail?'detail':'feed'}-${width}.png`),fullPage:true});
+		}
+		if(type==='blip') {
+			const photo=design.locator('.post-photo img').first();await photo.scrollIntoViewIfNeeded();
+			await photo.evaluate((image)=>image.decode());
+			assert(await photo.evaluate((image)=>{const box=image.getBoundingClientRect();return Math.abs(box.width/box.height-image.naturalWidth/image.naturalHeight)<0.02;}),'Postcards show uncropped photos in their natural proportions');
+		}
+	}
+	await design.goto(`${base}/?type=question`);await design.getByRole('navigation',{name:'Przeglądaj pytania'}).getByRole('link',{name:'Bez odpowiedzi',exact:true}).click();
+	await design.getByRole('heading',{name:'Pytania bez odpowiedzi',exact:true}).waitFor();
+	assert.equal(new URL(design.url()).searchParams.get('type'),'question','Question filters stay in Q&A');
+	for(const count of await design.locator('.question-answer-count strong').allInnerTexts())assert.equal(count,'0');
+	await design.getByLabel('Szukaj pytań',{exact:true}).fill('Czy OpenRails');await design.getByRole('button',{name:'Szukaj',exact:true}).click();await design.waitForURL(/q=/);
+	assert.equal(new URL(design.url()).searchParams.get('type'),'question','Searching stays within the question section');
+	await design.getByRole('navigation',{name:'Główna nawigacja'}).getByRole('link',{name:/Blipowisko/}).click();
+	await design.getByLabel('Twój blip',{exact:true}).waitFor();
+	assert.equal(await design.locator('#composer input[name="kind"]').inputValue(),'blip','In-app section switching selects the correct composer');
+	await design.getByLabel('Twój blip',{exact:true}).fill('Chwila ma swój rytm.');
+	assert.match(await design.locator('.character-count').innerText(),/20\s*\/ 160/,'The postcard counter follows its draft');
+	await design.goto(`${base}${blipURL}`);await design.getByRole('button',{name:'Napisz blipa',exact:true}).click();await design.waitForURL(`${base}/?type=blip#composer`);
+	assert.equal(await design.locator('#draft').evaluate((node)=>node===document.activeElement),true,'Writing from a detail page opens and focuses the right composer');
+	await design.close();
+
 
 	const headers = { origin: base, accept: 'application/json', 'x-sveltekit-action': 'true' };
 	const invalid = await page.request.post(`${base}/?/publish`, {
@@ -729,7 +778,7 @@ try {
 	const noJS = await browser.newContext({ javaScriptEnabled: false });
 	await noJS.addCookies(await context.cookies());
 	const plain = await noJS.newPage();
-	await plain.goto(base);
+	await plain.goto(`${base}/?type=question`);
 	await plain
 		.getByLabel('Twoje pytanie', { exact: true })
 		.fill('Czy formularze działają bez JavaScript?');
