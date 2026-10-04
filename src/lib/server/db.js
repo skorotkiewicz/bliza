@@ -39,7 +39,106 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 	}
 
 	async function seed() {
-		// SEED_DATA
+		const people = [
+			['kasia_po_godzinach', 'cat'],
+			['pan_od_internetu', 'pixel'],
+			['ola_w_drodze', 'mountain'],
+			['winylowy', 'record'],
+			['marta_czyta', 'flower'],
+			['nocny_marek', 'moon'],
+			['szymon.jpg', 'camera'],
+			['herbata_z_cytryną', 'lemon']
+		];
+		const posts = [
+			[
+				0,
+				'question',
+				'Jaka mała rzecz ostatnio poprawiła Wam dzień?',
+				'U mnie pani w piekarni dorzuciła ciepłą bułkę „na dobry początek”. Niby nic, a uśmiech został na cały dzień. :) #codzienność',
+				'Codzienność',
+				null
+			],
+			[
+				1,
+				'blip',
+				'',
+				'Pamiętacie ten dźwięk, kiedy ktoś był dostępny na Gadu-Gadu? Mój mózg właśnie go odtworzył. :D #nostalgia #internet',
+				'Komputery i internet',
+				null
+			],
+			[
+				2,
+				'blip',
+				'',
+				'Uciekłam na chwilę od powiadomień. Tutaj zasięg jest słaby, ale widoki całkiem niezłe. 🌲 #podróże #małeprzyjemności',
+				'Podróże',
+				'/images/mountains.jpg'
+			],
+			[
+				3,
+				'question',
+				'Jeden album, którego możecie słuchać bez końca?',
+				'Szukam czegoś na długi wieczór. Gatunek dowolny, byle od pierwszego do ostatniego utworu. U mnie „Długość dźwięku samotności”. #muzyka',
+				'Muzyka',
+				null
+			],
+			[
+				4,
+				'blip',
+				'',
+				'Kawa, deszcz za oknem i ostatnie 30 stron książki. Proszę nie przeszkadzać. ☕ #codzienność #książki',
+				'Codzienność',
+				null
+			],
+			[
+				5,
+				'question',
+				'Jaki film chcielibyście zobaczyć jeszcze raz po raz pierwszy?',
+				'Taki, po którym siedzieliście przez chwilę w ciszy, patrząc na napisy końcowe. #filmy',
+				'Filmy i seriale',
+				null
+			],
+			[
+				6,
+				'question',
+				'Od czego zacząć fotografię analogową?',
+				'Znalazłem u dziadka starego Zenita. Co warto wiedzieć przed kupieniem pierwszej kliszy? #fotografia',
+				'Pozostałe',
+				null
+			],
+			[
+				7,
+				'blip',
+				'',
+				'Oficjalnie: herbata smakuje lepiej w tym jednym, ulubionym kubku. Nauka jeszcze tego nie wyjaśniła. #codzienność',
+				'Codzienność',
+				null
+			],
+			[
+				0,
+				'question',
+				'Jak uczycie się języków, żeby się nie poddać po tygodniu?',
+				'Chcę wrócić do hiszpańskiego. Macie jakieś sprawdzone sposoby na regularność? #nauka',
+				'Szkoła i nauka',
+				null
+			]
+		];
+		const replies = [
+			[1, 4, 'Ktoś zostawił w bibliotece zakładkę z napisem „miłego czytania”. Nadal ją mam. ♥'],
+			[
+				1,
+				7,
+				'Pierwsze słońce po tygodniu deszczu. I pies, który cieszył się jeszcze bardziej ode mnie.'
+			],
+			[1, 1, 'Znalazłem pendrive z playlistą z 2012. Dzień od razu lepszy!'],
+			[2, 5, 'A opis „zaraz wracam”, który wisiał przez trzy dni? Klasyka.'],
+			[3, 6, 'Ten widok! Gdzie to jest?'],
+			[3, 2, 'Tatry, okolice Morskiego Oka. Polecam wstać bardzo wcześnie :)'],
+			[4, 5, 'Radiohead, „In Rainbows”. Nie ma słabego utworu.'],
+			[4, 0, 'Myslovitz zawsze. A do tego „Korova Milky Bar”!'],
+			[6, 4, 'Amelia. Za klimat i za te wszystkie małe rzeczy.'],
+			[9, 7, '10 minut codziennie zamiast dwóch godzin raz w tygodniu. U mnie działa.']
+		];
 		const now = Date.now();
 		for (const [i, [name, avatar]] of people.entries()) await collections.users.put(`seed-${i}`, { name, avatar });
 		for (const [i, [user, kind, title, body, category, image]] of posts.entries()) {
