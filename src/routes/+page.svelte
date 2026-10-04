@@ -1,14 +1,22 @@
 <script>
 	import { enhance } from '$app/forms';
 	import { goto, invalidateAll } from '$app/navigation';
-	import { onDestroy, untrack } from 'svelte';
+	import { onDestroy, untrack, tick } from 'svelte';
 	import Icon from '#lib/Icon.svelte';
 	import Avatar from '#lib/Avatar.svelte';
 	import { postPath, profilePath, feedPath } from '#lib/urls.js';
 
 	let { data, form } = $props();
 	const initial = () => form?.values;
-	let kind = $state(initial()?.kind || 'question');
+	let kind = $state(initial()?.kind || untrack(() => data.filters.type === 'blip' ? 'blip' : 'question'));
+	let composeType = $state(untrack(() => data.filters.type));
+	$effect(() => {
+		const next = data.filters.type;
+		if (next !== composeType) {
+			composeType = next;
+			if (next === 'question' || next === 'blip') untrack(() => chooseKind(next));
+		}
+	});
 	let draft = $state((initial()?.kind === 'blip' ? initial()?.body : initial()?.title) || '');
 	let description = $state(initial()?.kind === 'question' ? initial().body : '');
 	let showDescription = $state(initial()?.kind === 'question' && !!initial()?.body);
@@ -79,7 +87,7 @@
 			pending = false;
 		}
 	}
-	let composeField;
+	let composeField = $state(null);
 	let imageInput = $state(null);
 	let selectedImage = $state(null);
 	let imagePreview = $state('');
@@ -132,8 +140,9 @@
 	let view = $derived(filters.view || 'all');
 	let filtered = $derived(filters.q || filters.category || filters.tag || filters.user);
 	let entry = $derived(data.detail ? data.posts[0] : null);
+	let space = $derived(entry?.kind || (!data.profile && !filters.user && ['question', 'blip'].includes(filters.type) ? filters.type : 'mixed'));
 	let feedTitle = $derived(
-		entry ? 'Rozmowa' : data.profile ? `Wpisy ${data.profile.name}` : filters.q
+		entry ? (entry.kind === 'question' ? 'Pytanie i odpowiedzi' : 'Chwila i rozmowa') : data.profile ? `Wpisy ${data.profile.name}` : filters.q
 			? `Wyniki dla „${filters.q}”`
 			: filters.category ||
 					(filters.tag
@@ -146,11 +155,11 @@
 									? 'Pytania bez odpowiedzi'
 									: view === 'following'
 										? 'W kręgu znajomych'
-										: 'Co słychać w społeczności?')
+										: space === 'question' ? 'Pytania od sąsiadów' : space === 'blip' ? 'Chwile ze społeczności' : 'Co słychać w społeczności?')
 	);
 
 	function link(changes = {}, reset = false) {
-		const params = new URLSearchParams(reset ? {} : filters);
+		const params = new URLSearchParams(reset ? (space === 'mixed' ? {} : {type: space}) : filters);
 		params.delete('page');
 		for (const [key, value] of Object.entries(changes))
 			value === null || value === '' ? params.delete(key) : params.set(key, value);
@@ -168,13 +177,21 @@
 	function parts(text) {
 		return text.split(/(#[\p{L}\p{N}_]+)/gu);
 	}
-	function startWriting(type = 'question') {
+	function chooseKind(type) {
 		if (kind !== type) {
 			draft = '';
 			description = '';
+			showDescription = false;
 			clearImage();
 		}
 		kind = type;
+	}
+	async function startWriting(type = space === 'blip' ? 'blip' : 'question') {
+		if (entry || (space !== 'mixed' && space !== type)) {
+			await goto(`/?type=${type}#composer`);
+			await tick();
+		}
+		chooseKind(type);
 		document.getElementById('composer')?.scrollIntoView({
 			behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
 			block: 'center'
@@ -189,6 +206,7 @@
 			try {
 				if(result.type==='redirect'){profileDialog.close();await goto(result.location,{invalidateAll:true});return;}
 				await update({ navigate: false });
+				if (result.type === 'success' && formElement.classList.contains('reply-form')) formElement.reset();
 				if (result.type === 'success' && formElement.getAttribute('name') === 'publish') {
 					draft = '';
 					description = '';
@@ -243,7 +261,45 @@
 	{/each}
 {/snippet}
 
-<a href="#feed" class="skip-link">Przejdź do wpisów</a>
+{#snippet replyThread(post)}
+								<div class="reply-thread">
+									{#each post.replies as reply}<div class="reply">
+											<Avatar kind={reply.avatar} size={28} />
+											<div>
+												<a class="author-name" href={profilePath(reply)}
+													>{reply.name}</a
+												>
+												<p>{@render richText(reply.body)}</p><button class="report-button" aria-label={`Zgłoś odpowiedź ${reply.name}`} onclick={()=>openReport('reply',reply.id)}><Icon name="flag" size={14} /></button>
+											</div>
+										</div>{:else}<p class="first-reply">
+											{post.kind === 'question'
+												? 'Znasz odpowiedź? Bądź pierwszą osobą, która pomoże.'
+												: 'Tu zaczyna się rozmowa. Napisz coś miłego.'}
+										</p>{/each}
+									<form method="POST" action="?/reply" use:enhance={submit} class="reply-form">
+										<input type="hidden" name="id" value={post.id} />{#if entry && data.approvalRequired && !data.user.approved}<p class="reply-approval">Przed odpowiedzią potrzebujesz zatwierdzenia konta. <button type="button" onclick={openProfile}>Otwórz profil</button></p>{/if}<label
+											class:sr-only={!entry}
+											for={`reply-${post.id}`}>Twoja odpowiedź</label
+										><textarea
+											id={`reply-${post.id}`}
+											name="body"
+											required
+											maxlength="2000"
+											rows={entry && space === 'question' ? 4 : 2}
+											placeholder={space === 'question' ? 'Podziel się tym, co wiesz. Trochę kontekstu zawsze pomaga…' : 'Dołącz do rozmowy…'}></textarea><button
+											class="publish-button"
+											disabled={pending || (data.approvalRequired && !data.user.approved)}
+											type="submit">{pending ? 'Chwileczkę…' : 'Odpowiedz'}<Icon name="send" size={14} /></button
+										>
+									</form>
+								</div>
+{/snippet}
+
+{#snippet nativeAccount()}
+<noscript><section class="panel native-account"><h2>Twój profil bez JavaScript</h2><form method="POST" action="?/profile"><label for="native-name">Twój nick</label><input id="native-name" name="name" value={data.user.name} required minlength="3" maxlength="24" /><button class="ticket-return">Zapisz nick</button></form>{#if !data.user.approved}{#if data.user.verification}<p>Przekaż moderatorowi kod: <strong>{data.user.verification.code}</strong>. To potwierdzenie kontaktu, nie prawnej tożsamości.</p>{:else}<form method="POST" action="?/verification"><label for="native-note">Kilka słów do moderatora, bez danych wrażliwych</label><textarea id="native-note" name="note" required minlength="10" maxlength="500" rows="2"></textarea><button class="ticket-return">Poproś o zatwierdzenie konta</button></form>{/if}{/if}<form method="POST" action="/bilet">{#if data.hasTicket}<label class="admin-confirm"><input type="checkbox" name="replace" value="yes" required />Unieważnij stary bilet i wyloguj inne urządzenia.</label>{/if}<button class="ticket-return">Zabierz swój nick do domu</button></form><form method="POST" action="?/recover" enctype="multipart/form-data"><label for="native-ticket">Bilet powrotny w pliku TXT</label><input id="native-ticket" type="file" name="ticket" accept=".txt,text/plain" required /><button class="ticket-return">Wracam do siebie</button></form><p>Posiadacz pliku może wrócić do konta. Nie udostępniaj biletu.</p><form method="POST" action="?/others"><label class="admin-confirm"><input type="checkbox" name="confirmed" value="yes" required />Chcę wylogować pozostałe urządzenia.</label><button class="ticket-return">Wyloguj inne urządzenia</button></form><form method="POST" action="?/logout"><label class="admin-confirm"><input type="checkbox" name="confirmed" value="yes" required />Mam zapisany bilet albo świadomie zostawiam ten profil.</label><button class="ticket-return">Wyjdź na chwilę</button></form></section></noscript>
+{/snippet}
+
+<a href="#feed" class="skip-link">{entry ? 'Przejdź do rozmowy' : 'Przejdź do wpisów'}</a>
 <div class="utility-bar">
 	<div class="container utility-inner">
 		<span><span class="online-dot"></span> Internet jest mały. Bądźmy bliżej.</span><span
@@ -269,7 +325,7 @@
 		</form>
 		<div class="header-actions">
 			<button class="write-button" onclick={() => startWriting()}
-				><Icon name="plus" size={17} /><span>Dodaj wpis</span></button
+				><Icon name="plus" size={17} /><span>{space === 'question' ? 'Zadaj pytanie' : space === 'blip' ? 'Napisz blipa' : 'Dodaj wpis'}</span></button
 			><button
 				class="account-button"
 				onclick={openProfile}
@@ -281,11 +337,11 @@
 	<div class="nav-border">
 		<div class="container nav-inner">
 			<nav aria-label="Główna nawigacja">
-				<a class:active={view === 'all' && !filters.type && !filtered} href="/"
+				<a class:active={space === 'mixed' && view === 'all' && !filters.type && !filtered} href="/"
 					><Icon name="home" size={17} />Strona główna</a
-				><a class:active={filters.type === 'question'} href="/?type=question"
+				><a class:active={space === 'question'} href="/?type=question"
 					><Icon name="question" size={17} />Pytania i odpowiedzi</a
-				><a class:active={filters.type === 'blip'} href="/?type=blip"
+				><a class:active={space === 'blip'} href="/?type=blip"
 					><Icon name="chat" size={17} />Blipowisko<span class="new-label">160 znaków</span></a
 				>
 			</nav>
@@ -312,7 +368,7 @@
 	>
 </div>
 
-<main class="container portal-grid">
+<main class="container portal-grid" class:qa-space={space === 'question'} class:blip-space={space === 'blip'} class:detail-space={!!entry}>
 	<aside class="left-sidebar" aria-label="Twoja przestrzeń i kategorie">
 		<section class="profile-panel panel">
 			<div class="profile-top">
@@ -337,16 +393,16 @@
 			<a class:chosen={view === 'all' && !filtered && !filters.type} href="/"
 				><Icon name="globe" />Wszystkie wpisy</a
 			>
-			<a class:chosen={view === 'following'} href="/?view=following"
+			<a class:chosen={view === 'following'} href={link({view: 'following'}, true)}
 				><Icon name="users" />Obserwowani</a
 			>
-			<a class:chosen={view === 'popular'} href="/?view=popular"><Icon name="flame" />Popularne</a>
-			<a class:chosen={view === 'unanswered'} href="/?view=unanswered"
+			<a class:chosen={view === 'popular'} href={link({view: 'popular'}, true)}><Icon name="flame" />Popularne</a>
+			{#if space !== 'blip'}<a class:chosen={view === 'unanswered'} href={link({view: 'unanswered'}, true)}
 				><Icon name="question" />Bez odpowiedzi<span class="side-count"
 					>{data.stats.unanswered}</span
 				></a
-			>
-			<a class:chosen={view === 'saved'} href="/?view=saved"
+			>{/if}
+			<a class:chosen={view === 'saved'} href={link({view: 'saved'}, true)}
 				><Icon name="bookmark" />Zapisane<span class="side-count">{data.stats.saved}</span></a
 			>
 		</nav>
@@ -364,8 +420,8 @@
 		</section>
 		<div class="little-note">
 			<span class="note-doodle">✳</span>
-			<p>Nie ma głupich pytań.<br />Są tylko te niezadane.</p>
-			<button onclick={() => startWriting()}>No to zapytaj <Icon name="arrow" size={14} /></button>
+			<p>{#if space === 'blip'}Małe rzeczy też<br />są warte blipa.{:else}Nie ma głupich pytań.<br />Są tylko te niezadane.{/if}</p>
+			<button onclick={() => startWriting()}>{space === 'blip' ? 'Zostaw swoją chwilę' : 'No to zapytaj'} <Icon name="arrow" size={14} /></button>
 		</div>
 		<div class="sidebar-bottom">
 			<button onclick={() => aboutDialog.showModal()}>O blizie</button><span>·</span><button
@@ -376,14 +432,15 @@
 	</aside>
 
 	<div class="main-column">
-		<div class="feed-intro">
-			<div class="intro-kicker"><span class="orange-dash"></span> DOBRZE BYĆ MIĘDZY LUDŹMI</div>
-			<h1>{#if entry}{entry.title || `Blip użytkownika ${entry.name}`}{:else if data.profile}{data.profile.name}{:else}O czym dziś pogadamy<span>?</span>{/if}</h1>
-			<p>{entry ? `Rozmowa z ${entry.name}.` : data.profile ? `Pytania i blipy użytkownika ${data.profile.name}.` : 'Zadaj pytanie. Podziel się chwilą. Znajdź swoich ludzi.'}</p>
-		</div>
-		{#if data.approvalRequired && !data.user.approved}<div class="verification-notice"><span>Przed publikacją poproś moderatora o zatwierdzenie konta.</span><button onclick={openProfile}>Otwórz profil<Icon name="arrow" size={14} /></button></div>{/if}
+		{#if !entry}<div class="feed-intro">
+			<div class="intro-kicker"><span class="orange-dash"></span> {space === 'question' ? 'PYTANIA I ODPOWIEDZI' : space === 'blip' ? 'BLIPOWISKO · 160 ZNAKÓW' : 'DOBRZE BYĆ MIĘDZY LUDŹMI'}</div>
+			<h1>{#if data.profile}{data.profile.name}{:else if space === 'question'}Ktoś tutaj wie<span>.</span>{:else if space === 'blip'}Małe chwile<span>.</span><br />Dużo rozmów.{:else}O czym dziś pogadamy<span>?</span>{/if}</h1>
+			<p>{data.profile ? `Pytania i blipy użytkownika ${data.profile.name}.` : space === 'question' ? 'Zapytaj o coś, co Cię ciekawi. Pomóż w czymś, co już wiesz.' : space === 'blip' ? 'Zdjęcie, myśl, zwykłe „hej”. Nie wszystko musi być wielką historią.' : 'Zadaj pytanie. Podziel się chwilą. Znajdź swoich ludzi.'}</p>
+		</div>{:else}<div class="detail-return"><a href={`/?type=${space}`}><Icon name="chevron" size={14} />{space === 'question' ? 'Wróć do pytań' : 'Wróć na Blipowisko'}</a><span>{space === 'question' ? 'JEDNO PYTANIE. WIELE PERSPEKTYW.' : 'JEDNA CHWILA. NASZA ROZMOWA.'}</span></div>{/if}
+		{#if !entry && data.approvalRequired && !data.user.approved}<div class="verification-notice"><span>Przed publikacją poproś moderatora o zatwierdzenie konta.</span><button onclick={openProfile}>Otwórz profil<Icon name="arrow" size={14} /></button></div>{/if}
+		{#if !entry}
 		<section id="composer" class="composer panel" aria-label="Dodaj pytanie lub blipa">
-			<div class="composer-tabs">
+			{#if space !== 'mixed'}<div class="space-composer-heading"><Icon name={space === 'question' ? 'question' : 'chat'} size={20} /><h2>{space === 'question' ? 'Co chcesz wiedzieć?' : 'Co u Ciebie?'}</h2><span>{space === 'question' ? 'KTOŚ NA PEWNO WIE :)' : 'TWÓJ MAŁY KAWAŁEK INTERNETU'}</span></div>{:else}<div class="composer-tabs">
 				<button
 					class:selected={kind === 'question'}
 					aria-pressed={kind === 'question'}
@@ -397,7 +454,7 @@
 					>{kind === 'question' ? 'Ktoś na pewno wie :)' : 'Mała chwila, wielka rozmowa.'}</span
 				>
 			</div>
-			<form
+			{/if}<form
 				method="POST"
 				action="?/publish"
 				name="publish"
@@ -497,8 +554,8 @@
 					>
 				</div>
 			</form>
-		</section>
-		<noscript><section class="panel native-account"><h2>Twój profil bez JavaScript</h2><form method="POST" action="?/profile"><label for="native-name">Twój nick</label><input id="native-name" name="name" value={data.user.name} required minlength="3" maxlength="24" /><button class="ticket-return">Zapisz nick</button></form>{#if !data.user.approved}{#if data.user.verification}<p>Przekaż moderatorowi kod: <strong>{data.user.verification.code}</strong>. To potwierdzenie kontaktu, nie prawnej tożsamości.</p>{:else}<form method="POST" action="?/verification"><label for="native-note">Kilka słów do moderatora, bez danych wrażliwych</label><textarea id="native-note" name="note" required minlength="10" maxlength="500" rows="2"></textarea><button class="ticket-return">Poproś o zatwierdzenie konta</button></form>{/if}{/if}<form method="POST" action="/bilet">{#if data.hasTicket}<label class="admin-confirm"><input type="checkbox" name="replace" value="yes" required />Unieważnij stary bilet i wyloguj inne urządzenia.</label>{/if}<button class="ticket-return">Zabierz swój nick do domu</button></form><form method="POST" action="?/recover" enctype="multipart/form-data"><label for="native-ticket">Bilet powrotny w pliku TXT</label><input id="native-ticket" type="file" name="ticket" accept=".txt,text/plain" required /><button class="ticket-return">Wracam do siebie</button></form><p>Posiadacz pliku może wrócić do konta. Nie udostępniaj biletu.</p><form method="POST" action="?/others"><label class="admin-confirm"><input type="checkbox" name="confirmed" value="yes" required />Chcę wylogować pozostałe urządzenia.</label><button class="ticket-return">Wyloguj inne urządzenia</button></form><form method="POST" action="?/logout"><label class="admin-confirm"><input type="checkbox" name="confirmed" value="yes" required />Mam zapisany bilet albo świadomie zostawiam ten profil.</label><button class="ticket-return">Wyjdź na chwilę</button></form></section></noscript>
+		</section>{/if}
+		{#if !entry}{@render nativeAccount()}{/if}
 		{#if (form?.error || form?.success) && !dismissed}<div
 				class="form-message"
 				class:error={!!form.error}
@@ -510,10 +567,10 @@
 				>
 			</div>{/if}
 
-		<section id="feed" class="feed" aria-labelledby="feed-title">
-			<div class="feed-heading">
-				<h2 id="feed-title">{feedTitle}</h2>
-				<label class="sort-control"
+		<section id="feed" class="feed" aria-labelledby={!entry ? 'feed-title' : undefined} aria-label={entry ? 'Rozmowa' : undefined}>
+			{#if !entry}<div class="feed-heading">
+				<h2 id="feed-title" class:sr-only={!!entry}>{feedTitle}</h2>
+				{#if !entry}<label class="sort-control"
 					><Icon name="rss" size={13} /><span class="sr-only">Kolejność wpisów</span><select
 						value={view === 'popular' ? 'popular' : 'all'}
 						onchange={(e) =>
@@ -522,14 +579,11 @@
 						></select
 					><Icon name="down" size={12} /></label
 				>
-			</div>
-			<div class="feed-tabs">
-				<nav aria-label="Typ wpisów">
-					<a class:tab-active={!filters.type} href={link({ type: null })}>Wszystko</a><a
-						class:tab-active={filters.type === 'question'}
-						href={link({ type: 'question' })}>Pytania</a
-					><a class:tab-active={filters.type === 'blip'} href={link({ type: 'blip' })}>Blipy</a>
-				</nav>
+			{/if}</div>{/if}
+			{#if !entry}<div class="feed-tabs">
+				{#if space === 'question'}<nav aria-label="Przeglądaj pytania"><a class:tab-active={view !== 'popular' && view !== 'unanswered'} href={link({view: null})}>Najnowsze</a><a class:tab-active={view === 'unanswered'} href={link({view: 'unanswered'})}>Bez odpowiedzi</a><a class:tab-active={view === 'popular'} href={link({view: 'popular'})}>Popularne</a></nav>
+				{:else if space === 'blip'}<nav aria-label="Przeglądaj blipy"><a class:tab-active={view !== 'following' && view !== 'popular'} href={link({view: null})}>Wszystkie chwile</a><a class:tab-active={view === 'following'} href={link({view: 'following'})}>Obserwowani</a><a class:tab-active={view === 'popular'} href={link({view: 'popular'})}>Popularne</a></nav>
+				{:else}<nav aria-label="Typ wpisów"><a class:tab-active={!filters.type} href={link({type: null})}>Wszystko</a><a class:tab-active={filters.type === 'question'} href={link({type: 'question'})}>Pytania</a><a class:tab-active={filters.type === 'blip'} href={link({type: 'blip'})}>Blipy</a></nav>{/if}
 				<span
 					>{data.total}
 					{data.total === 1
@@ -541,11 +595,11 @@
 							: 'wpisów'}</span
 				>
 			</div>
-			{#if filtered}<div class="filter-summary">
+			{/if}{#if !entry && filtered}<div class="filter-summary">
 					<span
 						><Icon name="search" size={14} />{filters.category ||
 							(filters.tag ? `#${filters.tag}` : filters.q || 'Wybrany użytkownik')}</span
-					><a href="/">Wyczyść filtr <Icon name="close" size={13} /></a>
+					><a href={space === 'mixed' ? '/' : `/?type=${space}`}>Wyczyść filtr <Icon name="close" size={13} /></a>
 				</div>{/if}
 			<div class="post-list">
 				{#each data.posts as post (post.id)}
@@ -554,11 +608,12 @@
 						class:question-post={post.kind === 'question'}
 						id={`post-${post.id}`}
 					>
+						{#if space === 'question' && !entry}<a class="question-answer-count" class:has-answers={post.reply_count > 0} href={postPath(post)} aria-label={`Odpowiedzi do pytania: ${post.title}`}><strong>{post.reply_count}</strong><span>ODP.</span></a>{/if}
 						<div class="post-header">
 							<a
 								href={profilePath(post)}
 								class="avatar-link"
-								aria-label={`Wpisy ${post.name}`}><Avatar kind={post.avatar} size={40} /></a
+								aria-label={`Wpisy ${post.name}`}><Avatar kind={post.avatar} size={space === 'question' && !entry ? 28 : 40} /></a
 							>
 							<div class="post-byline">
 								<a class="author-name" href={profilePath(post)}>{post.name}</a>{#if post.approved}<span class="approved-badge" role="img" aria-label="Konto zatwierdzone przez moderatora" title="Konto zatwierdzone przez moderatora"><Icon name="check" size={12} /></span>{/if}
@@ -569,15 +624,15 @@
 									>
 								</div>
 							</div>
-							<button class="report-button" aria-label="Zgłoś wpis" onclick={()=>openReport('post',post.id)}><Icon name="flag" size={15} /></button><span class="post-kind" class:is-blip={post.kind === 'blip'}
+							<button class="report-button" aria-label="Zgłoś wpis" onclick={()=>openReport('post',post.id)}><Icon name="flag" size={15} /></button>{#if space === 'mixed'}<span class="post-kind" class:is-blip={post.kind === 'blip'}
 								><Icon
 									name={post.kind === 'question' ? 'question' : 'chat'}
 									size={13}
 								/>{post.kind === 'question' ? 'pytanie' : 'blip'}</span
 							>
-						</div>
+						{/if}</div>
 						<div class="post-content">
-							{#if post.title}<h3>
+							{#if entry}<h1 class:sr-only={space === 'blip'}>{post.title || `Blip użytkownika ${post.name}`}</h1>{:else if post.title}<h3>
 									<a
 										href={postPath(post)}>{post.title}</a
 									>
@@ -609,45 +664,7 @@
 									><Icon name="heart" size={16} /><span>{post.likes}</span></button
 								>
 							</form>
-							<details class="replies" id={`replies-${post.id}`}>
-								<summary
-									><Icon name="chat" size={16} /><span
-										>{post.kind === 'question' ? 'Odpowiedzi' : 'Komentarze'}
-										<strong>{post.reply_count}</strong></span
-									></summary
-								>
-								<div class="reply-thread">
-									{#each post.replies as reply}<div class="reply">
-											<Avatar kind={reply.avatar} size={28} />
-											<div>
-												<a class="author-name" href={profilePath(reply)}
-													>{reply.name}</a
-												>
-												<p>{@render richText(reply.body)}</p><button class="report-button" aria-label={`Zgłoś odpowiedź ${reply.name}`} onclick={()=>openReport('reply',reply.id)}><Icon name="flag" size={14} /></button>
-											</div>
-										</div>{:else}<p class="first-reply">
-											{post.kind === 'question'
-												? 'Znasz odpowiedź? Bądź pierwszą osobą, która pomoże.'
-												: 'Tu zaczyna się rozmowa. Napisz coś miłego.'}
-										</p>{/each}
-									<form method="POST" action="?/reply" use:enhance={submit} class="reply-form">
-										<input type="hidden" name="id" value={post.id} /><label
-											class="sr-only"
-											for={`reply-${post.id}`}>Twoja odpowiedź</label
-										><textarea
-											id={`reply-${post.id}`}
-											name="body"
-											required
-											maxlength="2000"
-											rows="2"
-											placeholder="Dołącz do rozmowy…"></textarea><button
-											class="publish-button"
-											disabled={pending || (data.approvalRequired && !data.user.approved)}
-											type="submit">Odpowiedz<Icon name="send" size={14} /></button
-										>
-									</form>
-								</div>
-							</details>
+							{#if entry}<a class="conversation-jump" href={`#reply-${post.id}`}><Icon name="chat" size={16} />{space === 'question' ? 'Napisz odpowiedź' : 'Dołącz do rozmowy'}</a>{:else}<details class="replies" id={`replies-${post.id}`}><summary><Icon name="chat" size={16} /><span>{post.kind === 'question' ? 'Odpowiedzi' : 'Komentarze'} <strong>{post.reply_count}</strong></span></summary>{@render replyThread(post)}</details>{/if}
 							<form class="save-form" method="POST" action="?/save" use:enhance={submit}>
 								<input type="hidden" name="id" value={post.id} /><button
 									class:saved={post.saved}
@@ -658,6 +675,7 @@
 								>
 							</form>
 						</div>
+						{#if entry}<section class="conversation" id={`replies-${post.id}`} aria-labelledby="conversation-title"><header class="conversation-heading"><h2 id="conversation-title">{space === 'question' ? 'Odpowiedzi' : 'Rozmowa'} <span>{post.reply_count}</span></h2><span>{space === 'question' ? 'KAŻDA PERSPEKTYWA SIĘ LICZY' : 'DOBRZE, ŻE JESTEŚ'}</span></header>{@render replyThread(post)}</section>{/if}
 					</article>
 				{:else}<div class="empty-state">
 						<Icon
@@ -686,15 +704,16 @@
 						>Strona {data.page} z {Math.ceil(data.total / 20)}</span
 					>{#if data.page * 20 < data.total}<a href={feedPath(filters, data.page + 1, data.profile)}>Następna →</a
 						>{/if}
-				</nav>{:else if data.posts.length}<div class="feed-end">
+				</nav>{:else if !entry && data.posts.length}<div class="feed-end">
 					<span></span><Icon name="smile" size={18} /><span></span>
-					<p>Jesteś na bieżąco. Może teraz Twoja kolej?</p>
+					<p>{space === 'question' ? 'Ktoś czeka na Twoją perspektywę. Znasz odpowiedź?' : space === 'blip' ? 'To wszystkie chwile na dziś. Może teraz Twoja?' : 'Jesteś na bieżąco. Może teraz Twoja kolej?'}</p>
 				</div>{/if}
 		</section>
+		{#if entry}{@render nativeAccount()}{/if}
 	</div>
 
 	<aside class="right-sidebar" aria-label="Społeczność">
-		<section class="welcome-panel">
+		{#if space !== 'mixed'}<section class="space-note panel"><span class="eyebrow">{space === 'question' ? 'SĄSIEDZKA TABLICA PYTAŃ' : 'POCZTÓWKA Z CODZIENNOŚCI'}</span>{#if space === 'question'}<div class="space-note-mark" aria-hidden="true">?</div><h2>Wiesz coś?<br />Podaj dalej.</h2><p>Nie musisz wiedzieć wszystkiego. Czasem jedna mała wskazówka robi wielką różnicę.</p>{:else}<div class="space-note-mark" aria-hidden="true">160<span>znaków</span></div><h2>Nie musi być<br />nic wielkiego.</h2><p>Kawa, spacer, zasłyszana piosenka. Jest miejsce na Twoje zwykłe „hej”.</p>{/if}{#if entry}<a href={`#reply-${entry.id}`}>{space === 'question' ? 'Napisz odpowiedź' : 'Dołącz do rozmowy'}<Icon name="arrow" size={16} /></a>{:else}<button onclick={() => startWriting()}>{space === 'question' ? 'Zadaj swoje pytanie' : 'Zostaw swoją chwilę'}<Icon name="arrow" size={16} /></button>{/if}<div class="space-note-footer"><Icon name={space === 'question' ? 'book' : 'coffee'} size={16} />{space === 'question' ? 'Pytaj. Czytaj. Pomagaj.' : 'Bez pośpiechu. Bez algorytmu.'}</div></section>{:else}<section class="welcome-panel">
 			<span class="welcome-eyebrow">MAŁY ZAKĄTEK INTERNETU</span>
 			<h2>Dobre pytania.<br />Jeszcze lepsze<br /><span>rozmowy.</span></h2>
 			<div class="welcome-art" aria-hidden="true">
@@ -714,7 +733,7 @@
 				<span class="online-dot"></span> Bez algorytmu. Po prostu ludzie.
 			</div>
 		</section>
-		<section class="trending-panel panel">
+		{/if}<section class="trending-panel panel">
 			<div class="section-heading">
 				<h2><Icon name="hash" size={18} />Na językach</h2>
 				<span>TERAZ</span>
