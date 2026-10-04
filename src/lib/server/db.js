@@ -27,7 +27,10 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		follows: ['user_id', 'target_id']
 	};
 	const collections = Object.fromEntries(
-		[...Object.keys(fields), 'meta', 'tickets'].map((name) => [name, db.collection(`${namespace}_${name}`)])
+		[...Object.keys(fields), 'meta', 'tickets'].map((name) => [
+			name,
+			db.collection(`${namespace}_${name}`)
+		])
 	);
 	const views = Object.entries(fields).map(
 		([table, columns]) =>
@@ -259,9 +262,12 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 
 	function issueTicket(user, replace = false) {
 		return exclusive(async () => {
-			if (await collections.tickets.get(user.id) && !replace) return null;
+			if ((await collections.tickets.get(user.id)) && !replace) return null;
 			const secret = randomBytes(32).toString('hex');
-			await collections.tickets.put(user.id, { hash: createHash('sha256').update(secret).digest('hex'), created: Date.now() });
+			await collections.tickets.put(user.id, {
+				hash: createHash('sha256').update(secret).digest('hex'),
+				created: Date.now()
+			});
 			return formatTicket(user, namespace, secret);
 		});
 	}
@@ -272,7 +278,13 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		return exclusive(async () => {
 			const saved = await collections.tickets.get(ticket.id);
 			if (typeof saved?.hash !== 'string' || !/^[a-f0-9]{64}$/.test(saved.hash)) return null;
-			if (!timingSafeEqual(Buffer.from(saved.hash, 'hex'), createHash('sha256').update(ticket.secret).digest())) return null;
+			if (
+				!timingSafeEqual(
+					Buffer.from(saved.hash, 'hex'),
+					createHash('sha256').update(ticket.secret).digest()
+				)
+			)
+				return null;
 			const user = await collections.users.get(ticket.id);
 			return user ? newSession({ ...user, id: ticket.id }) : null;
 		});

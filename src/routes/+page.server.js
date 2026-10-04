@@ -4,7 +4,13 @@ import { uploadImage } from '#lib/server/images.js';
 import { MAX_TICKET_SIZE, allowRecovery } from '#lib/server/tickets.js';
 
 function setSession({ cookies, url }, token) {
-	cookies.set('bliza_session', token, { path: '/', httpOnly: true, sameSite: 'lax', secure: url.protocol === 'https:', maxAge: 365 * 86400 });
+	cookies.set('bliza_session', token, {
+		path: '/',
+		httpOnly: true,
+		sameSite: 'lax',
+		secure: url.protocol === 'https:',
+		maxAge: 365 * 86400
+	});
 }
 
 async function currentUser(event) {
@@ -69,16 +75,29 @@ const validPost = (id) =>
 
 const handlers = {
 	recover: async (event) => {
-		if (!allowRecovery(event.getClientAddress())) return fail(429, { ticketError: 'Kasownik potrzebuje chwili oddechu. Spróbuj za minutę.' });
-		if (Number(event.request.headers.get('content-length')) > MAX_TICKET_SIZE + 1024) return fail(413, { ticketError: 'Bilet może mieć najwyżej 4 KB.' });
+		if (!allowRecovery(event.getClientAddress()))
+			return fail(429, { ticketError: 'Kasownik potrzebuje chwili oddechu. Spróbuj za minutę.' });
+		if (Number(event.request.headers.get('content-length')) > MAX_TICKET_SIZE + 1024)
+			return fail(413, { ticketError: 'Bilet może mieć najwyżej 4 KB.' });
 		let file;
-		try { file = (await event.request.formData()).get('ticket'); }
-		catch { return fail(400, { ticketError: 'Wybierz plik z biletem powrotnym.' }); }
-		if (!(file instanceof File) || !file.size || file.size > MAX_TICKET_SIZE) return fail(400, { ticketError: 'Wybierz bilet w pliku TXT, maksymalnie 4 KB.' });
+		try {
+			file = (await event.request.formData()).get('ticket');
+		} catch {
+			return fail(400, { ticketError: 'Wybierz plik z biletem powrotnym.' });
+		}
+		if (!(file instanceof File) || !file.size || file.size > MAX_TICKET_SIZE)
+			return fail(400, { ticketError: 'Wybierz bilet w pliku TXT, maksymalnie 4 KB.' });
 		const restored = await store.recoverTicket(await file.text());
-		if (!restored) return fail(401, { ticketError: 'Kasownik nie rozpoznaje biletu. Plik jest niepoprawny albo został zastąpiony nowym.' });
+		if (!restored)
+			return fail(401, {
+				ticketError:
+					'Kasownik nie rozpoznaje biletu. Plik jest niepoprawny albo został zastąpiony nowym.'
+			});
 		setSession(event, restored.token);
-		return { recovered: true, success: `Bilet sprawdzony. Cześć, ${restored.user.name}! Jesteś u siebie.` };
+		return {
+			recovered: true,
+			success: `Bilet sprawdzony. Cześć, ${restored.user.name}! Jesteś u siebie.`
+		};
 	},
 	publish: async (event) => {
 		if (Number(event.request.headers.get('content-length')) > 6 * 1024 * 1024)

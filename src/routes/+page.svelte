@@ -60,8 +60,11 @@
 			ticketMessage = 'Bilet gotowy. Schowaj plik w bezpiecznym miejscu. Do zobaczenia!';
 			await invalidateAll();
 		} catch {
-			ticketError = 'Nie udało się pobrać biletu. Sprawdź połączenie i spróbuj ponownie. Jeśli został już wydany, potwierdź zastąpienie starego pliku.';
-		} finally { pending = false; }
+			ticketError =
+				'Nie udało się pobrać biletu. Sprawdź połączenie i spróbuj ponownie. Jeśli został już wydany, potwierdź zastąpienie starego pliku.';
+		} finally {
+			pending = false;
+		}
 	}
 	let composeField;
 	let imageInput = $state(null);
@@ -272,7 +275,9 @@
 						: filters.type === 'blip'
 							? 'Blipowisko'
 							: 'Strona główna'}</span
-	><button class="ticket-entry" onclick={openTicket}><Icon name="ticket" size={16} />Mam bilet!</button>
+	><button class="ticket-entry" onclick={openTicket}
+		><Icon name="ticket" size={16} />Mam bilet!</button
+	>
 </div>
 
 <main class="container portal-grid">
@@ -766,25 +771,80 @@
 	</form>
 	<div class="local-profile-note">
 		<Icon name="ticket" size={20} />
-		<div><p>Nick nie musi mieszkać w jednej przeglądarce. Zabierz bilet powrotny w pliku TXT i wróć do swojego konta, kiedy chcesz.</p><button class="ticket-profile-link" onclick={openTicket}>Zabierz swój nick do domu<Icon name="arrow" size={15} /></button></div>
+		<div>
+			<p>
+				Nick nie musi mieszkać w jednej przeglądarce. Zabierz bilet powrotny w pliku TXT i wróć do
+				swojego konta, kiedy chcesz.
+			</p>
+			<button class="ticket-profile-link" onclick={openTicket}
+				>Zabierz swój nick do domu<Icon name="arrow" size={15} /></button
+			>
+		</div>
 	</div>
 </dialog>
 <dialog bind:this={ticketDialog} class="portal-dialog ticket-dialog" aria-labelledby="ticket-title">
-	<div class="dialog-heading"><h2 id="ticket-title">Bilet powrotny.</h2><button class="dialog-close" aria-label="Zamknij kasownik" onclick={() => ticketDialog.close()}><Icon name="close" /></button></div>
+	<div class="dialog-heading">
+		<h2 id="ticket-title">Bilet powrotny.</h2>
+		<button class="dialog-close" aria-label="Zamknij kasownik" onclick={() => ticketDialog.close()}
+			><Icon name="close" /></button
+		>
+	</div>
 	<p>Bez hasła. Bez maila. Twój mały kawałek internetu w pliku TXT.</p>
-	<section class="ticket-stub" aria-label="Twój bilet do Blizy"><div><span class="ticket-overline">BLIZA · DOBRY INTERNET</span><strong>{data.user.name}</strong><span>Kierunek: Twój mały kąt <span aria-hidden="true">:)</span></span></div><Icon name="ticket" size={36} /></section>
+	<section class="ticket-stub" aria-label="Twój bilet do Blizy">
+		<div>
+			<span class="ticket-overline">BLIZA · DOBRY INTERNET</span><strong>{data.user.name}</strong
+			><span>Kierunek: Twój mały kąt <span aria-hidden="true">:)</span></span>
+		</div>
+		<Icon name="ticket" size={36} />
+	</section>
 	<form method="POST" action="/bilet" onsubmit={downloadTicket}>
-		{#if data.hasTicket}<label class="ticket-replace"><input type="checkbox" name="replace" value="yes" required disabled={pending} />Unieważnij mój poprzedni bilet i wydaj nowy.</label><p class="field-help">Otwarte sesje na innych urządzeniach pozostaną aktywne.</p>{/if}
-		<button class="publish-button ticket-download" disabled={pending}>Zabierz swój nick do domu<Icon name="download" size={17} /></button>
+		{#if data.hasTicket}<label class="ticket-replace"
+				><input type="checkbox" name="replace" value="yes" required disabled={pending} />Unieważnij
+				mój poprzedni bilet i wydaj nowy.</label
+			>
+			<p class="field-help">Otwarte sesje na innych urządzeniach pozostaną aktywne.</p>{/if}
+		<button class="publish-button ticket-download" disabled={pending}
+			>Zabierz swój nick do domu<Icon name="download" size={17} /></button
+		>
 	</form>
 	{#if ticketMessage}<p class="ticket-message" role="status">{ticketMessage}</p>{/if}
 	<div class="ticket-divider"><span>MASZ JUŻ BILET?</span></div>
-	<form method="POST" action="?/recover" name="recover" enctype="multipart/form-data" use:enhance={submit}>
-		<label class="ticket-slot"><Icon name="ticket" size={24} /><span><strong>Wrzuć bilet do kasownika</strong><span>{ticketFileName || 'albo kliknij i wybierz plik .txt'}</span></span><input type="file" name="ticket" accept=".txt,text/plain" aria-label="Bilet powrotny w pliku TXT" aria-describedby="ticket-safety" required disabled={pending} onchange={selectTicket} /></label>
-		<button class="ticket-return" disabled={pending}>Wracam do siebie<Icon name="arrow" size={17} /></button>
+	<form
+		method="POST"
+		action="?/recover"
+		name="recover"
+		enctype="multipart/form-data"
+		use:enhance={submit}
+	>
+		<label class="ticket-slot"
+			><Icon name="ticket" size={24} /><span
+				><strong>Wrzuć bilet do kasownika</strong><span
+					>{ticketFileName || 'albo kliknij i wybierz plik .txt'}</span
+				></span
+			><input
+				type="file"
+				name="ticket"
+				accept=".txt,text/plain"
+				aria-label="Bilet powrotny w pliku TXT"
+				aria-describedby="ticket-safety"
+				required
+				disabled={pending}
+				onchange={selectTicket}
+			/></label
+		>
+		<button class="ticket-return" disabled={pending}
+			>Wracam do siebie<Icon name="arrow" size={17} /></button
+		>
 	</form>
-	{#if ticketError || (!dismissed && form?.ticketError)}<p class="dialog-error" role="alert">{ticketError || form.ticketError}</p>{/if}
-	<p class="ticket-safety" id="ticket-safety"><Icon name="lock" size={16} /><span>Ten plik otwiera konto. Nie udostępniaj go. Bez pliku i ciasteczka nie odzyskasz profilu. Powrót zmienia konto w tej przeglądarce, bez przenoszenia wpisów ani szkiców.</span></p>
+	{#if ticketError || (!dismissed && form?.ticketError)}<p class="dialog-error" role="alert">
+			{ticketError || form.ticketError}
+		</p>{/if}
+	<p class="ticket-safety" id="ticket-safety">
+		<Icon name="lock" size={16} /><span
+			>Ten plik otwiera konto. Nie udostępniaj go. Bez pliku i ciasteczka nie odzyskasz profilu.
+			Powrót zmienia konto w tej przeglądarce, bez przenoszenia wpisów ani szkiców.</span
+		>
+	</p>
 </dialog>
 <dialog bind:this={aboutDialog} class="portal-dialog" aria-labelledby="about-title">
 	<div class="dialog-heading">
@@ -804,8 +864,8 @@
 		<li>Blip to 160 znaków. Dobra rozmowa nie ma limitu.</li>
 	</ol>
 	<p class="field-help">
-		Wersja próbna: bez moderacji. Konto odzyskasz tylko z biletem powrotnym. Nie publikuj poufnych informacji. Zdjęcie
-		gór: Unsplash. Wpisy startowe są przykładowe.
+		Wersja próbna: bez moderacji. Konto odzyskasz tylko z biletem powrotnym. Nie publikuj poufnych
+		informacji. Zdjęcie gór: Unsplash. Wpisy startowe są przykładowe.
 	</p>
 	<button class="publish-button" onclick={() => aboutDialog.close()}
 		>Brzmi dobrze<Icon name="check" size={16} /></button

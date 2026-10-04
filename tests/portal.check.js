@@ -333,14 +333,205 @@ try {
 		320,
 		'No narrow-screen overflow'
 	);
-	const isolated = await browser.newContext();
+	await page.setViewportSize({ width: 390, height: 844 });
+	await page.getByRole('button', { name: 'Mam bilet!', exact: true }).click();
+	const machine = page.getByRole('dialog', { name: 'Bilet powrotny.', exact: true });
+	await machine.waitFor();
+	await page.screenshot({ path: join(directory, 'ticket-mobile.png') });
+	assert(
+		await machine.evaluate((node) => node.scrollWidth <= node.clientWidth),
+		'Ticket machine fits the mobile screen'
+	);
+	const downloadEvent = page.waitForEvent('download');
+	const issueResponse = page.waitForResponse(
+		(response) => response.url() === `${base}/bilet` && response.request().method() === 'POST'
+	);
+	await machine.getByRole('button', { name: 'Zabierz swój nick do domu', exact: true }).click();
+	const download = await downloadEvent;
+	assert.equal(download.suggestedFilename(), 'bilet-powrotny.txt');
+	const ticketPath = join(directory, 'bilet-powrotny.txt');
+	await download.saveAs(ticketPath);
+	const ticketText = await Bun.file(ticketPath).text();
+	const credential = ticketText.match(/^bliza-ticket-v1:([^:]+):([^:]+):([a-f0-9]{64})$/m);
+	assert(credential, 'Download contains a versioned random recovery key');
+	const issue = await issueResponse;
+	assert.equal(
+		issue.headers()['cache-control'],
+		'no-store',
+		'Credential download cannot be cached'
+	);
+	assert.match(issue.headers()['content-disposition'], /attachment/);
+	assert(
+		!ticketText.includes(process.env.OPENRAILS_TOKEN),
+		'Ticket never contains the service key'
+	);
+	await machine
+		.getByLabel('Unieważnij mój poprzedni bilet i wydaj nowy.', { exact: true })
+		.waitFor();
+	assert(
+		!(await page.content()).includes(credential[3]),
+		'Recovery key is not serialized in page HTML'
+	);
+	assert.equal(
+		(await page.request.post(`${base}/bilet`, { headers: { origin: base }, form: {} })).status(),
+		409,
+		'A ticket cannot be replaced without explicit consent'
+	);
+	assert.equal(
+		(
+			await page.request.post(`${base}/bilet`, {
+				headers: { origin: 'https://another-site.test' },
+				form: { replace: 'yes' }
+			})
+		).status(),
+		403,
+		'Ticket issuance is CSRF-protected'
+	);
+	assert.equal(
+		(await page.request.get(`${base}/bilet`)).status(),
+		405,
+		'GET cannot issue credentials'
+	);
+	await machine.getByRole('button', { name: 'Zamknij kasownik', exact: true }).click();
+	await page.getByRole('button', { name: 'Twój profil', exact: true }).click();
+	await page.getByLabel('Twój nick', { exact: true }).fill('sąsiad_z_biletem');
+	await page.getByRole('button', { name: 'Zapisz nick', exact: true }).click();
+	await page.locator('dialog[open]').waitFor({ state: 'hidden' });
+
+	const isolated = await browser.newContext({ viewport: { width: 390, height: 844 } });
+	assert.equal(
+		(
+			await isolated.request.post(`${base}/bilet`, { headers: { origin: base }, form: {} })
+		).status(),
+		401,
+		'Issuance requires an existing authenticated cookie'
+	);
 	const other = await isolated.newPage();
+	other.on('pageerror', (error) => errors.push(error.message));
 	await other.goto(`${base}/?view=saved`);
 	assert.equal(
 		await other.locator('article.post').count(),
 		0,
 		'Saved posts are private to the browser profile'
 	);
+	const guestCookie = (await isolated.cookies()).find(
+		(cookie) => cookie.name === 'bliza_session'
+	).value;
+	await other.getByRole('button', { name: 'Mam bilet!', exact: true }).click();
+	const returnMachine = other.getByRole('dialog', { name: 'Bilet powrotny.', exact: true });
+	const ticketPicker = returnMachine.getByLabel('Bilet powrotny w pliku TXT', { exact: true });
+	await ticketPicker.setInputFiles({
+		name: 'wrong.txt',
+		mimeType: 'text/plain',
+		buffer: Buffer.from(ticketText.replace(credential[3], '0'.repeat(64)))
+	});
+	await returnMachine.getByRole('button', { name: 'Wracam do siebie', exact: true }).click();
+	await returnMachine.getByRole('alert').waitFor();
+	assert.match(await returnMachine.getByRole('alert').innerText(), /nie rozpoznaje/);
+	assert.equal(
+		(await isolated.cookies()).find((cookie) => cookie.name === 'bliza_session').value,
+		guestCookie,
+		'Rejected ticket leaves the original session unchanged'
+	);
+	await ticketPicker.setInputFiles(ticketPath);
+	await returnMachine.getByRole('button', { name: 'Wracam do siebie', exact: true }).click();
+	await returnMachine.waitFor({ state: 'hidden' });
+	await other.waitForURL(base + '/');
+	await other.getByRole('button', { name: 'Twój profil', exact: true }).click();
+	assert.equal(
+		await other.getByLabel('Twój nick', { exact: true }).inputValue(),
+		'sąsiad_z_biletem',
+		'Ticket restores the same identity after a nickname change'
+	);
+	await other.keyboard.press('Escape');
+	const restoredCookie = (await isolated.cookies()).find(
+		(cookie) => cookie.name === 'bliza_session'
+	);
+	assert.notEqual(restoredCookie.value, guestCookie);
+	assert.notEqual(
+		restoredCookie.value,
+		credential[3],
+		'Recovery creates a fresh session rather than using the recovery key as a cookie'
+	);
+	assert.equal(restoredCookie.httpOnly, true);
+	assert.equal(restoredCookie.sameSite, 'Lax');
+	await other.goto(`${base}/?view=saved`);
+	assert.equal(
+		await other.locator('article.post').count(),
+		1,
+		'Account bookmarks return on another browser'
+	);
+	await other
+		.locator('article.post')
+		.getByRole('button', { name: /Cofnij polubienie/ })
+		.waitFor();
+	await other.locator('article.post summary').click();
+	assert.match(await other.locator('.reply-thread').innerText(), /Tak! I odpowiedzi również/);
+	await other.goto(`${base}/?view=following`);
+	assert((await other.locator('article.post').count()) > 0, 'Account follows return');
+	for (const name of await other.locator('article.post .post-byline .author-name').allInnerTexts())
+		assert.equal(name, personName);
+
+	await page.getByRole('button', { name: 'Mam bilet!', exact: true }).click();
+	await machine.getByLabel('Unieważnij mój poprzedni bilet i wydaj nowy.', { exact: true }).check();
+	const replacementEvent = page.waitForEvent('download');
+	await machine.getByRole('button', { name: 'Zabierz swój nick do domu', exact: true }).click();
+	const replacement = await replacementEvent;
+	const replacementPath = join(directory, 'bilet-nowy.txt');
+	await replacement.saveAs(replacementPath);
+	assert.notEqual(await Bun.file(replacementPath).text(), ticketText);
+	await other.getByRole('button', { name: 'Mam bilet!', exact: true }).click();
+	await ticketPicker.setInputFiles(ticketPath);
+	await returnMachine.getByRole('button', { name: 'Wracam do siebie', exact: true }).click();
+	await returnMachine.getByRole('alert').waitFor();
+	assert.match(await returnMachine.getByRole('alert').innerText(), /zastąpiony/);
+	await ticketPicker.setInputFiles(replacementPath);
+	await returnMachine.getByRole('button', { name: 'Wracam do siebie', exact: true }).click();
+	await returnMachine.waitFor({ state: 'hidden' });
+	await other.waitForURL(base + '/');
+	assert.equal(
+		(
+			await other.request.post(`${base}/?/recover`, { headers, form: { ticket: 'not a file' } })
+		).status(),
+		400,
+		'Recovery requires a file, not arbitrary form text'
+	);
+	assert.equal(
+		(
+			await other.request.post(`${base}/?/recover`, {
+				headers,
+				multipart: {
+					ticket: { name: 'large.txt', mimeType: 'text/plain', buffer: Buffer.alloc(4097) }
+				}
+			})
+		).status(),
+		400,
+		'Server enforces the 4 KB ticket limit'
+	);
+	assert.equal(
+		(
+			await other.request.post(`${base}/?/recover`, {
+				headers: { ...headers, origin: 'https://another-site.test' },
+				multipart: {
+					ticket: {
+						name: 'bilet.txt',
+						mimeType: 'text/plain',
+						buffer: Buffer.from(await Bun.file(replacementPath).text())
+					}
+				}
+			})
+		).status(),
+		403,
+		'Returning with a ticket is CSRF-protected'
+	);
+	await other.reload();
+	await other.getByRole('button', { name: 'Twój profil', exact: true }).click();
+	assert.equal(
+		await other.getByLabel('Twój nick', { exact: true }).inputValue(),
+		'sąsiad_z_biletem',
+		'Restored account survives reload'
+	);
+	await page.keyboard.press('Escape');
 	await isolated.close();
 	const noJS = await browser.newContext({ javaScriptEnabled: false });
 	const plain = await noJS.newPage();
@@ -354,7 +545,7 @@ try {
 	await noJS.close();
 	assert.deepEqual(errors, [], 'No browser runtime errors');
 	console.log(
-		`PASS: production UI, OpenRails writes/uploads, validation, CSRF, profile isolation, keyboard and responsive checks. Namespace: ${namespace}. Screenshots: ${directory}`
+		`PASS: production UI, OpenRails writes/uploads, ticket download/recovery/rotation, validation, CSRF, profile isolation, keyboard and responsive checks. Namespace: ${namespace}. Screenshots: ${directory}`
 	);
 } finally {
 	await browser?.close();
