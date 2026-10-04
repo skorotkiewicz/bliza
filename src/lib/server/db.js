@@ -1,16 +1,19 @@
 import { db, data, ApiError } from 'openrails';
 import { randomBytes, randomUUID, createHash, timingSafeEqual } from 'node:crypto';
 import { formatTicket, parseTicket } from './tickets.js';
+import { postPath } from '../urls.js';
 
 export const categories = [['Codzienność','coffee'],['Szkoła i nauka','book'],['Komputery i internet','monitor'],['Muzyka','music'],['Filmy i seriale','film'],['Relacje','heart'],['Podróże','compass'],['Pozostałe','grid']];
 export const approvalRequired = () => process.env.REQUIRE_APPROVAL !== 'false';
 export const digest = (value) => createHash('sha256').update(value).digest('hex');
 export class Problem extends Error { constructor(status, message) { super(message); this.status = status; } }
+export const mentionNames = (text) => [...new Set([...text.matchAll(/(?<![\p{L}\p{N}_.@])@([\p{L}\p{N}_.]{3,24})(?![\p{L}\p{N}_.])/gu)].map((match) => match[1]))];
 const safeId=(value)=>{ if(typeof value!=='string' || !/^(?:[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}|(?:seed-)?[0-9]{1,12})$/.test(value)) throw new Problem(400,'Niepoprawny identyfikator.'); };
 
 export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza') {
 	if (!/^[a-z][a-z0-9_]{0,50}$/.test(namespace)) throw new Error('Invalid OpenRails namespace');
 	const fields = {
+		notifications: ['user_id','actor_id','post_id','reply_id','created','read'],
 		users: ['name','avatar'], sessions: ['user_id','created','generation','revoked','id','device'],
 		posts_raw: ['user_id','kind','title','body','category','image','created','tags'],
 		replies_raw: ['post_id','user_id','body','created'], likes: ['user_id','post_id'], bookmarks: ['user_id','post_id'], follows: ['user_id','target_id'],
@@ -224,20 +227,62 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		if(deletes.length) checks.push(check('names',digest(old.name),oldRegistry));
 		await db.transaction({checks,puts:[put('users',ctx.user.id,{...old,name}),put('names',digest(name),{user_id:ctx.user.id})],deletes}); return true;
 	}); }
+	async function mentionMutations(actor, post, reply, text, created) {
+		const names = mentionNames(text);
+		if (names.length > 20) throw new Problem(400, 'W jednym wpisie możesz wspomnieć najwyżej 20 nicków.');
+		const recipients = new Map();
+		for (const original of names) {
+			let name = original, key = digest(name), registry = await collections.names.get(key);
+			const checks = [];
+			if (!registry && name.endsWith('.')) {
+				checks.push(check('names', key, null));
+				name = name.replace(/\.+$/, ''); key = digest(name);
+				registry = await collections.names.get(key);
+			}
+			if (!registry || registry.user_id === actor || recipients.has(registry.user_id)) continue;
+			const [user, account] = await Promise.all([collections.users.get(registry.user_id), collections.accounts.get(registry.user_id)]);
+			if (!user || user.name !== name || !account || account.banned) continue;
+			checks.push(check('names', key, registry), check('users', registry.user_id, user), check('accounts', registry.user_id, account));
+			recipients.set(registry.user_id, {checks, mutation: put('notifications', randomUUID(), {user_id: registry.user_id, actor_id: actor, post_id: String(post), reply_id: reply, created, read: false})});
+		}
+		return {checks: [...recipients.values()].flatMap((entry) => entry.checks), puts: [...recipients.values()].map((entry) => entry.mutation)};
+	}
+	const notificationFrom = `FROM notifications n JOIN users u ON u.id=n.actor_id JOIN posts p ON p.id=n.post_id LEFT JOIN replies r ON r.id=n.reply_id
+		WHERE n.user_id=? AND (n.reply_id IS NULL OR r.id IS NOT NULL)`;
+	const notificationSelect = `SELECT n.*,u.name,p.kind,p.title,p.body AS post_body,COALESCE(r.body,NULLIF(p.body,''),p.title) AS preview `;
+	const notificationHref = (row) => postPath({id: row.post_id, kind: row.kind, title: row.title, body: row.post_body}) + (row.reply_id ? `#answer-${row.reply_id}` : '');
+	async function notifications(token) {
+		const ctx = await required(token);
+		const [rows, counts] = await Promise.all([
+			read(`${notificationSelect}${notificationFrom} ORDER BY n.read,n.created DESC,n.id DESC LIMIT 20`, ctx.user.id),
+			read(`SELECT COUNT(*) AS count ${notificationFrom} AND n.read=0`, ctx.user.id)
+		]);
+		return {userId: ctx.user.id, unread: counts[0].count, items: [...rows].map((row) => ({id: row.id, name: row.name, created: row.created, read: Boolean(row.read), reply: Boolean(row.reply_id), preview: row.preview.slice(0,160), href: notificationHref(row)}))};
+	}
+	function openNotification(token, id) { safeId(id); return retry(async () => {
+		const ctx = await required(token), old = await collections.notifications.get(id);
+		if (!old || old.user_id !== ctx.user.id) throw new Problem(404, 'Nie znaleziono powiadomienia.');
+		const [row] = await read(`${notificationSelect}${notificationFrom} AND n.id=?`, ctx.user.id, id);
+		if (!row) throw new Problem(404, 'Ta rozmowa nie jest już dostępna.');
+		if (!old.read) await db.transaction({checks: [...ctx.checks, check('notifications',id,old)], puts: [put('notifications',id,{...old,read:true})]});
+		return notificationHref(row);
+	}); }
 	function addPost(token,kind,title,body,category,attachment=null,created=Date.now(),id=randomUUID()) { return retry(async()=>{
 		const ctx=await required(token,true); id=String(id); safeId(id);
 		const fingerprint=digest(JSON.stringify([kind,title,body,category,attachment?.digest||null]));
 		const existing=await collections.posts.get(id);
 		if(existing) { if(existing.user_id===ctx.user.id && existing.fingerprint===fingerprint) return id; throw new Problem(409,'Ten identyfikator wpisu jest już zajęty. Odśwież formularz.'); }
 		const quota=await slot(`publish:${ctx.user.id}`,10);
+		const mentions=await mentionMutations(ctx.user.id,id,null,`${title} ${body}`,created);
 		const image=attachment ? `/media/${id}.webp` : null;
 		const post={user_id:ctx.user.id,kind,title,body,category,image,created,tags:tagList(title,body),fingerprint};
-		await db.transaction({checks:[...ctx.checks,check('posts',id,null),quota.check],puts:[put('posts',id,post),quota.put],...(attachment ? {attachment:{name:`${namespace}/images/${id}.webp`,content_type:'image/webp',data:attachment.data}} : {})}); return id;
+		await db.transaction({checks:[...ctx.checks,check('posts',id,null),quota.check,...mentions.checks],puts:[put('posts',id,post),quota.put,...mentions.puts],...(attachment ? {attachment:{name:`${namespace}/images/${id}.webp`,content_type:'image/webp',data:attachment.data}} : {})}); return id;
 	}); }
 	function reply(token,post,body) { safeId(post); const id=randomUUID(); return retry(async()=>{
 		const ctx=await required(token,true); const visible=(await read('SELECT id FROM posts WHERE id=?',post))[0]; if(!visible) throw new Problem(404,'Nie znaleziono wpisu.');
 		const mod=await collections.moderation.get(`post/${post}`); if(mod?.hidden) throw new Problem(404,'Nie znaleziono wpisu.'); const quota=await slot(`reply:${ctx.user.id}`,20);
-		await db.transaction({checks:[...ctx.checks,check('moderation',`post/${post}`,mod),quota.check],puts:[put('replies',id,{post_id:String(post),user_id:ctx.user.id,body,created:Date.now()}),quota.put]});return id;
+		const created=Date.now(), mentions=await mentionMutations(ctx.user.id,post,id,body,created);
+		await db.transaction({checks:[...ctx.checks,check('moderation',`post/${post}`,mod),quota.check,...mentions.checks],puts:[put('replies',id,{post_id:String(post),user_id:ctx.user.id,body,created}),quota.put,...mentions.puts]});return id;
 	}); }
 	function toggle(table,token,target) { safeId(target); if(!['likes','bookmarks','follows'].includes(table)) throw new Problem(400,'Niepoprawna relacja.'); return retry(async()=>{
 		const ctx=await required(token); const key=`${ctx.user.id}/${target}`, old=await collections[table].get(key);
@@ -326,9 +371,9 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 			EXISTS(SELECT 1 FROM likes WHERE post_id=p.id AND user_id=?) AS liked,
 			EXISTS(SELECT 1 FROM bookmarks WHERE post_id=p.id AND user_id=?) AS saved
 			FROM posts p JOIN users u ON u.id=p.user_id ${where} ORDER BY ${view==='popular'?'likes DESC,':''}p.created DESC,p.id DESC LIMIT 20 OFFSET ?`,user,user,...values,(page-1)*20);
-		await Promise.all(posts.map(async(p)=>{p.replies=[...await read('SELECT r.*,u.name,u.avatar FROM replies r JOIN users u ON u.id=r.user_id WHERE post_id=? ORDER BY r.created,r.id LIMIT 100',p.id)];}));
+		await Promise.all(posts.map(async(p)=>{p.replies=[...await read('SELECT r.*,u.name,u.avatar,(SELECT approved FROM accounts WHERE id=u.id) AS approved FROM replies r JOIN users u ON u.id=r.user_id WHERE post_id=? ORDER BY r.created,r.id LIMIT 100',p.id)];}));
 		return {posts:[...posts],total,page};
 	}
-	return {namespace,collections,init,read,check,put,context,authenticated,visitor,issueTicket,recoverTicket,rename,addPost,reply,toggle,sessionList,revokeSession,revokeOthers,verification,report,moderate,adminData,feed,limit};
+	return {namespace,collections,init,read,check,put,context,notifications,openNotification,authenticated,visitor,issueTicket,recoverTicket,rename,addPost,reply,toggle,sessionList,revokeSession,revokeOthers,verification,report,moderate,adminData,feed,limit};
 }
 export const store=openStore();

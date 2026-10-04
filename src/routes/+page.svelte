@@ -1,7 +1,7 @@
 <script>
 	import { enhance } from '$app/forms';
 	import { goto, invalidateAll } from '$app/navigation';
-	import { onDestroy, untrack, tick } from 'svelte';
+	import { onDestroy, onMount, untrack, tick } from 'svelte';
 	import Icon from '#lib/Icon.svelte';
 	import Avatar from '#lib/Avatar.svelte';
 	import { postPath, profilePath, feedPath } from '#lib/urls.js';
@@ -25,6 +25,34 @@
 	let postNonce = $state(untrack(()=>data.postNonce));
 	let identity=untrack(()=>data.user.id);
 	$effect(()=>{ if(identity!==data.user.id){identity=data.user.id;draft='';description='';clearImage();document.querySelectorAll('.reply-form').forEach((r)=>r.reset());} });
+	let notificationBox = $state(null);
+	let notificationData = $state(untrack(() => data.notifications));
+	let notificationLoading = false;
+	$effect(() => { notificationData = data.notifications; });
+	async function refreshNotifications() {
+		if (notificationLoading || pending || document.visibilityState !== 'visible') return;
+		notificationLoading = true;
+		const userId = data.user.id;
+		try {
+			const response = await fetch('/notifications', {cache: 'no-store'});
+			if (response.ok) {
+				const next = await response.json();
+				if (data.user.id === userId && next.userId === userId) notificationData = next;
+			} else if (response.status === 401 && data.user.id === userId) notificationData = {userId, unread: 0, items: []};
+		} catch { /* Keep the last successful view during a connection failure. */ }
+		finally { notificationLoading = false; }
+	}
+	onMount(() => {
+		const interval = setInterval(refreshNotifications, 30000);
+		const dismiss = (event) => {
+			if (!notificationBox?.open) return;
+			if (event.type === 'keydown' && event.key === 'Escape') {
+				notificationBox.open = false; notificationBox.querySelector('summary').focus();
+			} else if (event.type === 'click' && !notificationBox.contains(event.target)) notificationBox.open = false;
+		};
+		document.addEventListener('keydown', dismiss); document.addEventListener('click', dismiss);
+		return () => { clearInterval(interval); document.removeEventListener('keydown', dismiss); document.removeEventListener('click', dismiss); };
+	});
 	let reportDialog;
 	let reportKind = $state('post');
 	let reportId = $state('');
@@ -140,6 +168,7 @@
 	let filtered = $derived(filters.q || filters.category || filters.tag || filters.user);
 	let entry = $derived(data.detail ? data.posts[0] : null);
 	let space = $derived(entry?.kind || (!data.profile && !filters.user && ['question', 'blip'].includes(filters.type) ? filters.type : 'mixed'));
+	let writeLabel = $derived(space === 'question' ? 'Zadaj pytanie' : space === 'blip' ? 'Napisz blipa' : 'Dodaj wpis');
 	let feedTitle = $derived(
 		entry ? (entry.kind === 'question' ? 'Pytanie i odpowiedzi' : 'Chwila i rozmowa') : data.profile ? `Wpisy ${data.profile.name}` : filters.q
 			? `Wyniki dla „${filters.q}”`
@@ -261,12 +290,10 @@
 
 {#snippet replyThread(post)}
 	<div class="reply-thread">
-		{#each post.replies as reply}<div class="reply">
+		{#each post.replies as reply}<div class="reply" id={`answer-${reply.id}`}>
 				<Avatar name={reply.name} size={28} />
 				<div>
-					<a class="author-name" href={profilePath(reply)}
-						>{reply.name}</a
-					>
+					<div class="reply-heading"><span><a class="author-name" href={profilePath(reply)}>{reply.name}</a>{#if reply.approved}<span class="approved-badge" role="img" aria-label="Konto zatwierdzone przez moderatora" title="Konto zatwierdzone przez moderatora"><Icon name="check" size={12} /></span>{/if}</span><time datetime={new Date(reply.created).toISOString()} title={new Date(reply.created).toLocaleString('pl-PL')}>{ago(reply.created)}</time></div>
 					<p>{@render richText(reply.body)}</p><button class="report-button" aria-label={`Zgłoś odpowiedź ${reply.name}`} onclick={()=>openReport('reply',reply.id)}><Icon name="flag" size={14} /></button>
 				</div>
 			</div>{:else}<p class="first-reply">
@@ -323,9 +350,20 @@
 			/><button aria-label="Szukaj" type="submit"><Icon name="arrow" size={17} /></button>
 		</form>
 		<div class="header-actions">
-			<button class="write-button" onclick={() => startWriting()}
-				><Icon name="plus" size={17} /><span>{space === 'question' ? 'Zadaj pytanie' : space === 'blip' ? 'Napisz blipa' : 'Dodaj wpis'}</span></button
-			><button
+			<button class="write-button" aria-label={writeLabel} onclick={() => startWriting()}
+				><Icon name="plus" size={17} /><span>{writeLabel}</span></button>
+			<details class="notifications" bind:this={notificationBox} ontoggle={() => { if (notificationBox?.open) refreshNotifications(); }}>
+				<summary aria-label={`Powiadomienia · nieprzeczytane: ${notificationData.unread}`}><Icon name="bell" size={20} />{#if notificationData.unread}<span class="notification-count">{notificationData.unread > 99 ? '99+' : notificationData.unread}</span>{/if}</summary>
+				<section class="notification-panel" aria-label="Powiadomienia o wzmiankach">
+					<header><h2>Ktoś Cię woła.</h2><span>Wzmianki o Tobie</span></header>
+					{#each notificationData.items as item (item.id)}<form method="POST" action="?/notification" use:enhance={submit}>
+						<input type="hidden" name="id" value={item.id} /><button class="notification-item" class:unread={!item.read} disabled={pending} type="submit">
+							<Avatar name={item.name} size={28} /><span><span class="notification-message"><strong>{item.name}</strong> wspomina Cię {item.reply ? 'w odpowiedzi' : 'we wpisie'}.</span><span class="notification-preview">{item.preview}</span><time datetime={new Date(item.created).toISOString()}>{ago(item.created)}</time></span>
+						</button>
+					</form>{:else}<p class="notification-empty">Na razie cisza. Gdy ktoś napisze @Twój_nick, znajdziesz tutaj rozmowę.</p>{/each}
+				</section>
+			</details>
+			<button
 				class="account-button"
 				onclick={openProfile}
 				aria-label="Twój profil"

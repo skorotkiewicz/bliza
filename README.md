@@ -39,6 +39,8 @@ Generate `ADMIN` with `openssl rand -hex 32`. It must contain 32–256 printable
 
 Add a photo by choosing a file, pasting or dropping it into the blip textarea, or entering a public HTTPS image link. Blips accept JPG, PNG, GIF or WebP images up to 5 MB. Uploads are resized, stripped of metadata and stored as WebP.
 
+Mention a current nickname with `@nick` in a post or answer. The bell opens that conversation and marks the notification read; visible pages refresh it every 30 seconds. A post can mention up to 20 nicknames.
+
 Post links use `/pytanie/<id>/<slug>` or `/wpis/<id>/<slug>`. Profiles use `/ludzie/<nick>` and pagination adds `/strona/2`.
 
 ## Production

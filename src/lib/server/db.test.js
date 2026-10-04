@@ -5,7 +5,7 @@ import https from 'node:https';
 import dns from 'node:dns/promises';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { openStore, digest } from './db.js';
+import { openStore, digest, mentionNames } from './db.js';
 import { uploadImage, MAX_IMAGE_SIZE, IMAGE_NAME, downloadImage, isPublicImageAddress } from './images.js';
 import { formatTicket, parseTicket, MAX_TICKET_SIZE } from './tickets.js';
 import { postPath, profilePath, feedPath } from '../urls.js';
@@ -43,7 +43,7 @@ test.skipIf(!process.env.OPENRAILS_TOKEN)('atomic account approval, concurrent m
 	await Promise.all(Array.from({length:12},(_,i)=>(i%2?first:second).toggle('likes',other.token,id)));
 	const saved=(await second.feed(other.user.id,new URLSearchParams({view:'saved'}))).posts[0];
 	expect(saved.likes).toBe(1);expect(saved.saved).toBe(1);expect(saved.image).toBe(`/media/${id}.webp`);
-	expect(saved.replies[0].body).toContain('ponownym');
+	expect(saved.replies[0].body).toContain('ponownym');expect(saved.replies[0].approved).toBe(1);expect(saved.replies[0].created).toBeGreaterThan(0);
 	expect((await first.feed(other.user.id,new URLSearchParams({view:'following'}))).total).toBe(1);
 	expect((await first.feed(other.user.id,new URLSearchParams({tag:'TEST'}))).total).toBe(1);
 	expect((await first.feed(other.user.id,new URLSearchParams({q:'%'}))).total).toBe(0);
@@ -159,4 +159,49 @@ test('readable post and profile URLs keep identity and pagination filters',()=>{
 	expect(feedPath({user:profile.id,tag:'kot',page:'7'},2,profile)).toBe('/ludzie/s%C4%85siad/strona/2?tag=kot');
 	expect(feedPath({user:profile.id},1,profile)).toBe(profilePath(profile));
 	expect(feedPath({},1)).toBe('/');
+});
+
+
+test('mentions recognise current nickname characters without matching email addresses', () => {
+	expect(mentionNames('@koza hej, @łąka.jpg i (@koza) @koza. email@koza.pl')).toEqual(['koza','łąka.jpg','koza.']);
+	expect(mentionNames('@' + 'x'.repeat(25) + ' @ab @@koza')).toEqual([]);
+});
+
+test.skipIf(!process.env.OPENRAILS_TOKEN)('mention notifications are atomic, private and moderation-aware', async () => {
+	const previous = process.env.REQUIRE_APPROVAL; process.env.REQUIRE_APPROVAL = 'false';
+	try {
+		const store = openStore(`bliza_mentions_${randomUUID().replaceAll('-','')}`);
+		const author = await store.visitor(), recipient = await store.visitor(), outsider = await store.visitor();
+		await store.rename(author.token,'autor'); await store.rename(recipient.token,'koza'); await store.rename(outsider.token,'łąka.jpg');
+		const id = randomUUID();
+		const publish = () => store.addPost(author.token,'question','@koza Gdzie pogadamy?','@koza. @autor email@koza.pl @nieistniejący','Codzienność',null,Date.now(),id);
+		await publish(); await publish();
+		const initial = await store.notifications(recipient.token);
+		expect(initial.unread).toBe(1); expect(initial.items).toHaveLength(1);
+		expect((await store.notifications(author.token)).items).toHaveLength(0);
+		expect((await store.notifications(outsider.token)).items).toHaveLength(0);
+		await expect(store.openNotification(outsider.token,initial.items[0].id)).rejects.toThrow('Nie znaleziono');
+		await expect(store.notifications('not-a-session')).rejects.toThrow('Sesja');
+		const reply = await store.reply(outsider.token,id,'@koza hej, jak się masz?');
+		const notices = await store.notifications(recipient.token), answer = notices.items.find((item) => item.reply);
+		expect(notices.unread).toBe(2); expect(answer.name).toBe('łąka.jpg'); expect(answer.href).toEndWith(`#answer-${reply}`);
+		expect(await store.openNotification(recipient.token,answer.id)).toBe(answer.href);
+		expect((await store.notifications(recipient.token)).unread).toBe(1);
+		await store.collections.moderation.put(`reply/${reply}`,{kind:'reply',target:reply,hidden:true});
+		expect((await store.notifications(recipient.token)).items).toHaveLength(1);
+		await expect(store.openNotification(recipient.token,answer.id)).rejects.toThrow('nie jest już dostępna');
+		await store.collections.moderation.put(`reply/${reply}`,{kind:'reply',target:reply,hidden:false});
+		await store.collections.moderation.put(`post/${id}`,{kind:'post',target:id,hidden:true});
+		expect((await store.notifications(recipient.token)).items).toHaveLength(0);
+		await store.collections.moderation.put(`post/${id}`,{kind:'post',target:id,hidden:false});
+		const policy = await store.collections.accounts.get(outsider.user.id);
+		await store.collections.accounts.put(outsider.user.id,{...policy,banned:true});
+		expect((await store.notifications(recipient.token)).items).toHaveLength(1);
+		const before = (await store.feed(author.user.id)).total;
+		await expect(store.addPost(author.token,'question','Za dużo wzmianek',Array.from({length:21},(_,i)=>`@osoba_${i}`).join(' '),'Codzienność')).rejects.toThrow('20 nicków');
+		expect((await store.feed(author.user.id)).total).toBe(before);
+		await store.rename(author.token,'koza.');
+		await store.reply(recipient.token,id,'@koza. To dokładny nick, nie końcowa kropka.');
+		expect((await store.notifications(author.token)).unread).toBe(1);
+	} finally { if(previous === undefined) delete process.env.REQUIRE_APPROVAL; else process.env.REQUIRE_APPROVAL = previous; }
 });

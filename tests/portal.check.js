@@ -70,6 +70,17 @@ try {
 	await page.goto(base);
 	await page.waitForLoadState('networkidle');
 	assert.equal(await page.locator('article.post').count(), 9, 'Seeded feed');
+	await page.mouse.move(0,0);
+	const flag=page.locator('article.post').first().getByRole('button',{name:'Zgłoś wpis',exact:true});
+	assert.equal(await flag.evaluate((node)=>getComputedStyle(node).opacity),'0','Desktop report flags are quiet until hover');
+	await page.locator('article.post').first().hover();await page.waitForFunction(()=>getComputedStyle(document.querySelector('article.post .report-button')).opacity==='1');
+	await page.mouse.move(0,0);await flag.focus();
+	await page.waitForFunction(()=>getComputedStyle(document.querySelector('article.post .report-button')).opacity==='1');
+	assert.equal(await flag.evaluate((node)=>getComputedStyle(node).opacity),'1','Keyboard focus reveals report flags');
+	await flag.evaluate((node)=>node.blur());
+	const touch=await browser.newContext({hasTouch:true,isMobile:true,viewport:{width:320,height:844}});const touchPage=await touch.newPage();await touchPage.goto(base);
+	assert.equal(await touchPage.locator('article.post .report-button').first().evaluate((node)=>getComputedStyle(node).opacity),'1','Touch users can always discover the report action');await touch.close();
+
 	assert.notDeepEqual(
 		await avatarPattern(page.locator('#post-1 .avatar-link .avatar')),
 		await avatarPattern(page.locator('#post-2 .avatar-link .avatar')),
@@ -232,6 +243,8 @@ try {
 	assert.deepEqual(await avatarPattern(page.locator('.account-button .avatar')), ownAvatar, 'The portrait is stable after a reload');
 	assert.deepEqual(await avatarPattern(post.locator('.avatar-link .avatar')), ownAvatar, 'The author uses their name-seeded portrait');
 	assert.deepEqual(await avatarPattern(post.locator('.reply .avatar').last()), ownAvatar, 'Replies use the same portrait');
+	assert.equal(await post.locator('.reply .approved-badge').count(),1,'Approved answers carry the same badge as posts');
+	assert.match(await post.locator('.reply time').getAttribute('datetime'),/^\d{4}-\d{2}-\d{2}T/,'Answers expose their creation time');
 	const questionURL=await post.locator('h3 a').getAttribute('href');
 	assert.match(questionURL,/^\/pytanie\/[a-f0-9-]{36}\/czy-openrails-pamieta-nasze-rozmowy$/);
 	await post.locator('h3 a').click();await page.waitForURL(`${base}${questionURL}`);
@@ -797,7 +810,42 @@ try {
 	await optionalPost.locator('summary').click();
 	assert(!(await optionalPost.getByRole('button',{name:'Odpowiedz',exact:true}).isDisabled()),'Optional approval enables reply controls');
 	assert.equal((await optionalContext.request.post(`${optionalBase}/?/reply`,{headers,form:{id:await optionalPost.locator('.reply-form input[name="id"]').inputValue(),body:'Tak, ustawieniem środowiska.'}})).status(),200,'Server allows unapproved replies');
-	await optionalContext.close();
+	const recipientName=await page.locator('.profile-name').innerText();
+	const notificationPage=await context.newPage();notificationPage.on('pageerror',(error)=>errors.push(error.message));
+	await notificationPage.clock.install();await notificationPage.goto(base);await notificationPage.waitForLoadState('networkidle');
+	const notificationBody=`@${recipientName} Wzmianka we wpisie.`;
+	assert.equal((await optionalContext.request.post(`${optionalBase}/?/publish`,{headers,form:{kind:'blip',body:notificationBody,category:'Codzienność',nonce:randomUUID()}})).status(),200);
+	await notificationPage.clock.runFor(30001);await notificationPage.locator('.notification-count').waitFor();
+	assert.equal(await notificationPage.locator('.notification-count').innerText(),'1','Visible pages refresh their unread mentions without reloading drafts');
+	await notificationPage.locator('.notifications > summary').click();
+	const notice=(await (await context.request.get(`${base}/notifications`)).json()).items[0];
+	assert.equal((await optionalContext.request.post(`${optionalBase}/?/notification`,{headers,form:{id:notice.id}})).status(),404,'Another user cannot open or mark a private notification');
+	for(const width of [1440,390,320]) {
+		await notificationPage.setViewportSize({width,height:844});
+		const box=await notificationPage.locator('.notification-panel').boundingBox();assert(box.x>=0 && box.x+box.width<=width,'The notification sheet fits desktop and narrow screens');
+		assert.equal(await notificationPage.evaluate(()=>document.documentElement.scrollWidth),width);
+		if(width!==390)await notificationPage.screenshot({path:join(directory,`notifications-${width}.png`)});
+	}
+	await notificationPage.keyboard.press('Escape');assert.equal(await notificationPage.locator('.notifications').getAttribute('open'),null,'Escape closes the notification sheet');
+	await notificationPage.locator('.notifications > summary').press('Space');
+	await notificationPage.getByRole('button',{name:/wspomina Cię we wpisie/}).click();await notificationPage.waitForURL(`${base}${notice.href}`);
+	assert(await notificationPage.locator('article.post').getByText(notificationBody,{exact:true}).isVisible(),'Clicking a mention opens its post');
+	assert.equal((await (await context.request.get(`${base}/notifications`)).json()).unread,0,'Opening a notification marks it read');
+	const targetPost=await optionalPost.locator('.reply-form input[name="id"]').inputValue();
+	const answerBody=`@${recipientName} Wzmianka w odpowiedzi.`;
+	assert.equal((await optionalContext.request.post(`${optionalBase}/?/reply`,{headers,form:{id:targetPost,body:answerBody}})).status(),200);
+	await notificationPage.clock.runFor(30001);await notificationPage.locator('.notification-count').waitFor();await notificationPage.locator('.notifications > summary').click();
+	await notificationPage.getByRole('button',{name:/wspomina Cię w odpowiedzi/}).click();await notificationPage.waitForURL(/#answer-/);
+	assert(await notificationPage.locator('.reply:target').getByText(answerBody,{exact:true}).isVisible(),'Reply notifications jump to the exact visible answer');
+	assert.equal((await (await context.request.get(`${base}/notifications`)).json()).unread,0);
+	assert.equal((await optionalContext.request.post(`${optionalBase}/?/reply`,{headers,form:{id:targetPost,body:`@${recipientName} Wzmianka bez JavaScript.`}})).status(),200);
+	const nativeNotifications=await browser.newContext({javaScriptEnabled:false});await nativeNotifications.addCookies(await context.cookies());
+	const nativeNotificationPage=await nativeNotifications.newPage();await nativeNotificationPage.goto(base);await nativeNotificationPage.locator('.notifications > summary').click();
+	await nativeNotificationPage.locator('.notification-item').filter({hasText:'Wzmianka bez JavaScript.'}).click();await nativeNotificationPage.waitForURL(/#answer-/);
+	assert(await nativeNotificationPage.locator('.reply:target').isVisible(),'Native notification forms open the exact answer without JavaScript');await nativeNotifications.close();
+	const anonymousNotifications=await browser.newContext();const deniedNotifications=await anonymousNotifications.request.get(`${base}/notifications`);
+	assert.equal(deniedNotifications.status(),401);assert.equal(deniedNotifications.headers()['set-cookie'],undefined,'Polling never creates a replacement session');await anonymousNotifications.close();
+	await notificationPage.close();await optionalContext.close();
 	for(const width of [1440,390,320]) {
 		await moderator.setViewportSize({width,height:844});await moderator.goto(`${base}/admin?view=posts`);
 		assert.equal(await moderator.evaluate(()=>document.documentElement.scrollWidth),width,'Admin layout does not overflow');
