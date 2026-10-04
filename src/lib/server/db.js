@@ -1,5 +1,6 @@
 import { db, data } from 'openrails';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID, createHash, timingSafeEqual } from 'node:crypto';
+import { formatTicket, parseTicket } from './tickets.js';
 
 process.env.OPENRAILS_URL ||= 'http://192.168.0.124:8787';
 
@@ -26,7 +27,7 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		follows: ['user_id', 'target_id']
 	};
 	const collections = Object.fromEntries(
-		[...Object.keys(fields), 'meta'].map((name) => [name, db.collection(`${namespace}_${name}`)])
+		[...Object.keys(fields), 'meta', 'tickets'].map((name) => [name, db.collection(`${namespace}_${name}`)])
 	);
 	const views = Object.entries(fields).map(
 		([table, columns]) =>
@@ -226,25 +227,54 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		}));
 	}
 
+	async function authenticated(token) {
+		if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) return null;
+		await init();
+		const session = await collections.sessions.get(token);
+		if (!(session?.created > Date.now() - 365 * 86400000)) return null;
+		const user = await collections.users.get(session.user_id);
+		return user ? { ...user, id: session.user_id } : null;
+	}
+
+	async function newSession(user) {
+		const token = randomBytes(32).toString('hex');
+		await collections.sessions.put(token, { user_id: user.id, created: Date.now() });
+		return { user, token };
+	}
+
 	async function visitor(token) {
 		await init();
-		if (typeof token === 'string' && /^[a-f0-9]{64}$/.test(token)) {
-			const session = await collections.sessions.get(token);
-			if (session?.created > Date.now() - 365 * 86400000) {
-				const user = await collections.users.get(session.user_id);
-				if (user) return { user: { ...user, id: session.user_id }, token };
-			}
-		}
+		const existing = await authenticated(token);
+		if (existing) return { user: existing, token };
 		return exclusive(async () => {
 			const id = randomUUID();
 			let name = `nowy_${id.slice(0, 6)}`;
 			while ((await read('SELECT id FROM users WHERE name=?', name)).length)
 				name = `nowy_${randomBytes(4).toString('hex')}`;
 			const user = { name, avatar: 'pixel' };
-			const session = randomBytes(32).toString('hex');
 			await collections.users.put(id, user);
-			await collections.sessions.put(session, { user_id: id, created: Date.now() });
-			return { user: { ...user, id }, token: session };
+			return newSession({ ...user, id });
+		});
+	}
+
+	function issueTicket(user, replace = false) {
+		return exclusive(async () => {
+			if (await collections.tickets.get(user.id) && !replace) return null;
+			const secret = randomBytes(32).toString('hex');
+			await collections.tickets.put(user.id, { hash: createHash('sha256').update(secret).digest('hex'), created: Date.now() });
+			return formatTicket(user, namespace, secret);
+		});
+	}
+
+	function recoverTicket(text) {
+		const ticket = parseTicket(text, namespace);
+		if (!ticket) return Promise.resolve(null);
+		return exclusive(async () => {
+			const saved = await collections.tickets.get(ticket.id);
+			if (typeof saved?.hash !== 'string' || !/^[a-f0-9]{64}$/.test(saved.hash)) return null;
+			if (!timingSafeEqual(Buffer.from(saved.hash, 'hex'), createHash('sha256').update(ticket.secret).digest())) return null;
+			const user = await collections.users.get(ticket.id);
+			return user ? newSession({ ...user, id: ticket.id }) : null;
 		});
 	}
 
@@ -376,6 +406,9 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		init,
 		read,
 		visitor,
+		authenticated,
+		issueTicket,
+		recoverTicket,
 		feed,
 		addPost,
 		toggle,

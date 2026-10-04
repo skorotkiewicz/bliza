@@ -39,6 +39,14 @@ Production builds default to `http://localhost:3000`. For deployment, set the pu
 
 Questions, blips, replies, likes, saved posts, following, nicknames, search, category/tag/user filters, popular and unanswered feeds, pagination. Blips accept one JPG, PNG, GIF or WebP image up to 5 MB, with preview and server-side signature/MIME/size validation. Failed writes keep the enhanced form's draft and selected file available to retry.
 
-This remains a prototype, not an authenticated public social network. Browser profiles use isolated HTTP-only cookies, without password login or recovery. Add authentication and moderation before public launch. OpenRails 0.1 does not expose atomic conditional writes/transactions: this app serializes relation toggles and nickname changes locally and must run as **one app instance**. A failed post write can leave an unreferenced image; content hashing reuses the same file on retry.
+### Return tickets
+
+Start without registration, then open your profile and choose **Zabierz swój nick do domu** to download `bilet-powrotny.txt`. On another browser choose **Mam bilet!**, drop/select the file and click **Wracam do siebie**. The same account returns, including its posts, bookmarks and follows. Changing the nickname does not break the ticket.
+
+Each ticket contains a random 256-bit recovery key. OpenRails stores only its SHA-256 hash, separately from public profiles. Downloads are authenticated, POST-only, CSRF-protected and marked `no-store`; return attempts are size-limited and throttled. Recovery creates a fresh HTTP-only session, not a copy of the original cookie. Tickets work repeatedly until replaced; replacing one requires explicit confirmation and invalidates the old file, but does not log out existing sessions. A failed download can still have issued a ticket: reload and confirm replacement to retry while your browser session remains active.
+
+**Treat the file like a key.** Anyone holding it can access the account. Losing both the file and browser session means losing access. Switching accounts does not merge the previous profile's activity or drafts. Use HTTPS for both the portal and backend outside a trusted LAN.
+
+This remains a prototype without moderation, identity verification or remote session management. Add those before public launch. OpenRails 0.1 does not expose atomic conditional writes/transactions: this app serializes relation toggles, nickname changes and ticket operations locally and must run as **one app instance**. A failed post write can leave an unreferenced image; content hashing reuses the same file on retry.
 
 Mountain photograph from Unsplash; pixel avatars are drawn locally. No affiliation with Zapytaj or Blip.

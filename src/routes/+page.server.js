@@ -1,25 +1,23 @@
 import { fail, error } from '@sveltejs/kit';
 import { store, categories } from '#lib/server/db.js';
 import { uploadImage } from '#lib/server/images.js';
+import { MAX_TICKET_SIZE, allowRecovery } from '#lib/server/tickets.js';
 
-async function currentUser({ cookies, url }) {
-	const oldToken = cookies.get('bliza_session');
+function setSession({ cookies, url }, token) {
+	cookies.set('bliza_session', token, { path: '/', httpOnly: true, sameSite: 'lax', secure: url.protocol === 'https:', maxAge: 365 * 86400 });
+}
+
+async function currentUser(event) {
+	const oldToken = event.cookies.get('bliza_session');
 	const { user, token } = await store.visitor(oldToken);
-	if (oldToken !== token)
-		cookies.set('bliza_session', token, {
-			path: '/',
-			httpOnly: true,
-			sameSite: 'lax',
-			secure: url.protocol === 'https:',
-			maxAge: 365 * 86400
-		});
+	if (oldToken !== token) setSession(event, token);
 	return user;
 }
 
 export async function load(event) {
 	try {
 		const user = await currentUser(event);
-		const [feed, counts, trending, people, stats] = await Promise.all([
+		const [feed, counts, trending, people, stats, ticket] = await Promise.all([
 			store.feed(user.id, event.url.searchParams),
 			store.read('SELECT category, COUNT(*) AS n FROM posts GROUP BY category'),
 			store.read(
@@ -38,10 +36,12 @@ export async function load(event) {
 				user.id,
 				user.id,
 				user.id
-			)
+			),
+			store.collections.tickets.get(user.id)
 		]);
 		return {
 			user,
+			hasTicket: Boolean(ticket),
 			...feed,
 			filters: Object.fromEntries(event.url.searchParams),
 			categories: categories.map(([name, icon]) => ({
@@ -68,6 +68,18 @@ const validPost = (id) =>
 	) && store.collections.posts.get(id);
 
 const handlers = {
+	recover: async (event) => {
+		if (!allowRecovery(event.getClientAddress())) return fail(429, { ticketError: 'Kasownik potrzebuje chwili oddechu. Spróbuj za minutę.' });
+		if (Number(event.request.headers.get('content-length')) > MAX_TICKET_SIZE + 1024) return fail(413, { ticketError: 'Bilet może mieć najwyżej 4 KB.' });
+		let file;
+		try { file = (await event.request.formData()).get('ticket'); }
+		catch { return fail(400, { ticketError: 'Wybierz plik z biletem powrotnym.' }); }
+		if (!(file instanceof File) || !file.size || file.size > MAX_TICKET_SIZE) return fail(400, { ticketError: 'Wybierz bilet w pliku TXT, maksymalnie 4 KB.' });
+		const restored = await store.recoverTicket(await file.text());
+		if (!restored) return fail(401, { ticketError: 'Kasownik nie rozpoznaje biletu. Plik jest niepoprawny albo został zastąpiony nowym.' });
+		setSession(event, restored.token);
+		return { recovered: true, success: `Bilet sprawdzony. Cześć, ${restored.user.name}! Jesteś u siebie.` };
+	},
 	publish: async (event) => {
 		if (Number(event.request.headers.get('content-length')) > 6 * 1024 * 1024)
 			return fail(413, { error: 'Zdjęcie może mieć maksymalnie 5 MB.' });
@@ -162,7 +174,7 @@ export const actions = Object.fromEntries(
 				return await handler(event);
 			} catch {
 				return fail(503, {
-					error:
+					[name === 'recover' ? 'ticketError' : 'error']:
 						'OpenRails jest chwilowo niedostępny. Spróbuj ponownie; formularz nie został wyczyszczony.'
 				});
 			}

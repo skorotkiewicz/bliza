@@ -381,6 +381,8 @@
 	.breadcrumb-date {
 		margin-left: auto;
 	}
+	.ticket-entry { margin-left: auto; min-height: 44px; font-size: 11px; color: var(--link); }
+	.ticket-profile-link { margin-top: var(--s3); min-height: 44px; font-size: 11px; color: var(--link); }
 	.portal-grid {
 		display: grid;
 		grid-template-columns: 192px minmax(0, 1fr) 264px;
@@ -1557,6 +1559,33 @@
 	.local-profile-note p {
 		font-size: 11px;
 	}
+	.ticket-dialog { max-height: calc(100dvh - 32px); overflow-y: auto; }
+	.ticket-dialog .dialog-close { min-width: 44px; min-height: 44px; margin-top: calc(-1 * var(--s2)); margin-right: calc(-1 * var(--s2)); }
+	.ticket-stub { display: flex; align-items: center; justify-content: space-between; gap: var(--s6); padding: var(--s4); margin-block: var(--s5); background: var(--hello-paper); border: 1px dashed var(--hello-line); border-radius: 4px; }
+	.ticket-stub > div { min-width: 0; }
+	.ticket-stub > svg { color: var(--blip-orange); }
+	.ticket-stub span { display: block; font-size: 11px; color: var(--ink-caption); }
+	.ticket-stub strong { display: block; font-size: 20px; margin-block: var(--s2); overflow-wrap: anywhere; }
+	.ticket-stub .ticket-overline { font: 10px 'Courier New', monospace; letter-spacing: .6px; color: var(--ink-soft); }
+	.ticket-stub span span { display: inline; color: var(--blip-orange); }
+	.ticket-dialog .ticket-download { width: 100%; min-height: 44px; font-size: 12px; }
+	.ticket-dialog form > .ticket-replace { display: flex; align-items: flex-start; gap: var(--s2); font-size: 11px; font-weight: 400; }
+	.ticket-replace input { width: 16px; height: 16px; flex-shrink: 0; margin: 0; accent-color: var(--blip-orange); }
+	.ticket-divider { display: flex; align-items: center; gap: var(--s3); margin-block: var(--s6); font: 10px 'Courier New', monospace; letter-spacing: .6px; color: var(--ink-caption); }
+	.ticket-divider::before, .ticket-divider::after { content: ''; height: 1px; flex: 1; background: var(--line); }
+	.ticket-dialog form > .ticket-slot { position: relative; display: flex; align-items: center; justify-content: center; gap: var(--s3); padding: var(--s5) var(--s3); background: var(--inset); border: 1px dashed var(--line-strong); border-radius: 4px; cursor: pointer; }
+	.ticket-slot > svg { color: var(--link); }
+	.ticket-slot > span { min-width: 0; }
+	.ticket-slot strong { display: block; font-size: 12px; }
+	.ticket-slot span span { display: block; font-size: 11px; font-weight: 400; color: var(--ink-caption); overflow-wrap: anywhere; margin-top: var(--s1); }
+	.ticket-slot input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+	.ticket-slot:hover { border-color: var(--link); }
+	.ticket-slot:focus-within { outline: 2px solid var(--blip-orange); outline-offset: 3px; }
+	.ticket-slot:has(input:disabled) { opacity: .55; }
+	.ticket-return { width: 100%; min-height: 44px; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--link); font-size: 12px; font-weight: 700; }
+	.ticket-return:hover { border-color: var(--blip-orange); }
+	.ticket-dialog .ticket-message { font-size: 11px; color: var(--green); }
+	.ticket-dialog .ticket-safety { display: flex; align-items: flex-start; gap: var(--s2); margin-bottom: 0; padding-top: var(--s4); border-top: 1px solid var(--line); font-size: 11px; color: var(--ink-caption); }
 	.community-rules {
 		padding-left: var(--s5);
 		font-size: 13px;
