@@ -238,7 +238,8 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		return exclusive(async () => {
 			const id = randomUUID();
 			let name = `nowy_${id.slice(0, 6)}`;
-			while ((await read('SELECT id FROM users WHERE name=?', name)).length) name = `nowy_${randomBytes(4).toString('hex')}`;
+			while ((await read('SELECT id FROM users WHERE name=?', name)).length)
+				name = `nowy_${randomBytes(4).toString('hex')}`;
 			const user = { name, avatar: 'pixel' };
 			const session = randomBytes(32).toString('hex');
 			await collections.users.put(id, user);
