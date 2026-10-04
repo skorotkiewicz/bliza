@@ -6,6 +6,7 @@ process.env.OPENRAILS_URL ||= 'http://192.168.0.124:8787';
 export const categories = [['Codzienność','coffee'],['Szkoła i nauka','book'],['Komputery i internet','monitor'],['Muzyka','music'],['Filmy i seriale','film'],['Relacje','heart'],['Podróże','compass'],['Pozostałe','grid']];
 export const digest = (value) => createHash('sha256').update(value).digest('hex');
 export class Problem extends Error { constructor(status, message) { super(message); this.status = status; } }
+const safeId=(value)=>{ if(typeof value!=='string' || !/^(?:[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}|(?:seed-)?[0-9]{1,12})$/.test(value)) throw new Problem(400,'Niepoprawny identyfikator.'); };
 const policyDefault = () => ({ generation: 'legacy', approved: false, banned: false });
 
 export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza') {
@@ -170,8 +171,9 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 	}
 	const authenticated = async(token) => (await context(token))?.user||null;
 	function sessionRecord(id,generation,device) { return {id:randomUUID(),user_id:id,created:Date.now(),generation,device:String(device||'Nieznane urządzenie').slice(0,120),revoked:false}; }
-	async function visitor(token,device) {
+	async function visitor(token,device,address) {
 		await init(); const existing=await context(token); if(existing) return {user:existing.user,token};
+		if(address) await limit(`guest:${address}`,20,3600000);
 		return retry(async()=>{
 			const id=randomUUID(), name=`nowy_${id.slice(0,8)}`, secret=randomBytes(32).toString('hex'), policy={...policyDefault(),generation:randomUUID()};
 			const registry=await collections.names.get(digest(name));
@@ -223,7 +225,7 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		await db.transaction({checks,puts:[put('users',ctx.user.id,{...old,name}),put('names',digest(name),{user_id:ctx.user.id})],deletes}); return true;
 	}); }
 	function addPost(token,kind,title,body,category,attachment=null,created=Date.now(),id=randomUUID()) { return retry(async()=>{
-		const ctx=await required(token,true); id=String(id);
+		const ctx=await required(token,true); id=String(id); safeId(id);
 		const fingerprint=digest(JSON.stringify([kind,title,body,category,attachment?.digest||null]));
 		const existing=await collections.posts.get(id);
 		if(existing) { if(existing.user_id===ctx.user.id && existing.fingerprint===fingerprint) return id; throw new Problem(409,'Ten identyfikator wpisu jest już zajęty. Odśwież formularz.'); }
@@ -232,12 +234,12 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		const post={user_id:ctx.user.id,kind,title,body,category,image,created,tags:tagList(title,body),fingerprint};
 		await db.transaction({checks:[...ctx.checks,check('posts',id,null),quota.check],puts:[put('posts',id,post),quota.put],...(attachment ? {attachment:{name:`${namespace}/images/${id}.webp`,content_type:'image/webp',data:attachment.data}} : {})}); return id;
 	}); }
-	function reply(token,post,body) { const id=randomUUID(); return retry(async()=>{
+	function reply(token,post,body) { safeId(post); const id=randomUUID(); return retry(async()=>{
 		const ctx=await required(token,true); const visible=(await read('SELECT id FROM posts WHERE id=?',post))[0]; if(!visible) throw new Problem(404,'Nie znaleziono wpisu.');
 		const mod=await collections.moderation.get(`post/${post}`); if(mod?.hidden) throw new Problem(404,'Nie znaleziono wpisu.'); const quota=await slot(`reply:${ctx.user.id}`,20);
 		await db.transaction({checks:[...ctx.checks,check('moderation',`post/${post}`,mod),quota.check],puts:[put('replies',id,{post_id:String(post),user_id:ctx.user.id,body,created:Date.now()}),quota.put]});return id;
 	}); }
-	function toggle(table,token,target) { if(!['likes','bookmarks','follows'].includes(table)) throw new Problem(400,'Niepoprawna relacja.'); return retry(async()=>{
+	function toggle(table,token,target) { safeId(target); if(!['likes','bookmarks','follows'].includes(table)) throw new Problem(400,'Niepoprawna relacja.'); return retry(async()=>{
 		const ctx=await required(token); const key=`${ctx.user.id}/${target}`, old=await collections[table].get(key);
 		if(table==='follows' ? target===ctx.user.id || !await collections.users.get(target) : !(await read('SELECT id FROM posts WHERE id=?',target)).length) throw new Problem(404,'Nie znaleziono celu.');
 		await db.transaction({checks:[...ctx.checks,check(table,key,old)],puts:old?[]:[put(table,key,{user_id:ctx.user.id,[table==='follows'?'target_id':'post_id']:String(target)})],deletes:old?[remove(table,key)]:[]}); return !old;
@@ -248,8 +250,10 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		return [...rows].map((s)=>({id:s.id||`legacy_${digest(s.record_key)}`,device:s.device||'Starsza sesja',created:s.created,current:s.record_key===ctx.key}));
 	}
 	function revokeSession(token,id) { return retry(async()=>{
-		const ctx=await required(token); const rows=await collections.sessions.where('user_id','eq',ctx.user.id).page(1,1000);
-		const selected=rows.find((r)=>(r.value.id||`legacy_${digest(r.key)}`)===id);
+		const ctx=await required(token); let selected;
+		if(/^legacy_[a-f0-9]{64}$/.test(id)) {
+			for(let page=1;!selected;page++) { const rows=await collections.sessions.where('user_id','eq',ctx.user.id).page(page,1000); selected=rows.find((r)=>!r.value.id && `legacy_${digest(r.key)}`===id); if(rows.length<1000) break; }
+		} else { safeId(id); const row=(await read('SELECT record_key FROM sessions WHERE user_id=? AND id=? LIMIT 1',ctx.user.id,id))[0]; if(row) selected={key:row.record_key,value:await collections.sessions.get(row.record_key)}; }
 		if(!selected) throw new Problem(404,'Nie znaleziono sesji.');
 		await db.transaction({checks:[...ctx.checks,check('sessions',selected.key,selected.value)],puts:[put('sessions',selected.key,{...selected.value,revoked:true})]}); return selected.key===ctx.key;
 	}); }
@@ -263,12 +267,13 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		await db.transaction({checks:[...ctx.checks,quota.check],puts:[put('accounts',ctx.user.id,{...ctx.policy,request:{note,code:randomBytes(4).toString('hex'),created:Date.now()}}),quota.put]});
 	}); }
 	function report(token,kind,target,reason) { return retry(async()=>{
-		const ctx=await required(token); if(!['post','reply'].includes(kind)) throw new Problem(400,'Niepoprawny typ zgłoszenia.');
+		const ctx=await required(token); safeId(target); if(!['post','reply'].includes(kind)) throw new Problem(400,'Niepoprawny typ zgłoszenia.');
 		if(!(await read(`SELECT id FROM ${kind==='post'?'posts':'replies'} WHERE id=?`,target)).length) throw new Problem(404,'Nie znaleziono treści.');
 		const quota=await slot(`report:${ctx.user.id}`,10,3600000);
 		await db.transaction({checks:[...ctx.checks,quota.check],puts:[put('reports',randomUUID(),{kind,target,user_id:ctx.user.id,reason,created:Date.now(),resolved:false}),quota.put]});
 	}); }
 	function moderate(admin,kind,target,action,reason,code='') { return retry(async()=>{
+		safeId(target);
 		const currentAdmin=await collections.admin_sessions.get(admin.key);
 		if(!currentAdmin || currentAdmin.revoked || currentAdmin.expires<=Date.now()) throw new Problem(401,'Sesja administratora wygasła.');
 		const checks=[check('admin_sessions',admin.key,admin.record)],puts=[];
