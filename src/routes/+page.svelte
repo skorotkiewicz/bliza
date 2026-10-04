@@ -1,6 +1,7 @@
 <script>
 	import { enhance } from '$app/forms';
 	import { goto } from '$app/navigation';
+	import { onDestroy } from 'svelte';
 	import Icon from '#lib/Icon.svelte';
 	import Avatar from '#lib/Avatar.svelte';
 
@@ -16,6 +17,40 @@
 	let profileDialog;
 	let aboutDialog;
 	let composeField;
+	let imageInput = $state(null);
+	let selectedImage = $state(null);
+	let imagePreview = $state('');
+	let imageError = $state('');
+
+	function clearImage() {
+		if (imagePreview) URL.revokeObjectURL(imagePreview);
+		imagePreview = '';
+		selectedImage = null;
+		imageError = '';
+		if (imageInput) imageInput.value = '';
+	}
+	function selectImage(event) {
+		const file = event.currentTarget.files?.[0];
+		if (!file) {
+			clearImage();
+			return;
+		}
+		if (
+			file.size > 5 * 1024 * 1024 ||
+			!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)
+		) {
+			clearImage();
+			imageError = 'Wybierz JPG, PNG, GIF lub WebP, maksymalnie 5 MB.';
+			return;
+		}
+		if (imagePreview) URL.revokeObjectURL(imagePreview);
+		selectedImage = file;
+		imageError = '';
+		imagePreview = URL.createObjectURL(file);
+	}
+	onDestroy(() => {
+		if (imagePreview) URL.revokeObjectURL(imagePreview);
+	});
 
 	let filters = $derived(data.filters);
 	let view = $derived(filters.view || 'all');
@@ -60,6 +95,7 @@
 		if (kind !== type) {
 			draft = '';
 			description = '';
+			clearImage();
 		}
 		kind = type;
 		document.getElementById('composer')?.scrollIntoView({
@@ -79,6 +115,7 @@
 					draft = '';
 					description = '';
 					showDescription = false;
+					clearImage();
 				}
 				if (result.type === 'success' && formElement.getAttribute('name') === 'profile')
 					profileDialog.close();
@@ -266,7 +303,13 @@
 					>{kind === 'question' ? 'Ktoś na pewno wie :)' : 'Mała chwila, wielka rozmowa.'}</span
 				>
 			</div>
-			<form method="POST" action="?/publish" name="publish" use:enhance={submit}>
+			<form
+				method="POST"
+				action="?/publish"
+				name="publish"
+				enctype="multipart/form-data"
+				use:enhance={submit}
+			>
 				<input type="hidden" name="kind" value={kind} />
 				<div class="composer-writing">
 					<Avatar kind={data.user.avatar} size={36} /><label class="sr-only" for="draft"
@@ -294,6 +337,40 @@
 								maxlength="4000"
 								rows="3"></textarea>
 						</div>{:else}<input type="hidden" name="body" value={description} />{/if}{/if}
+				{#if kind === 'blip'}
+					<div class="image-attachment">
+						<label class="attach-image"
+							><Icon name="image" size={16} />{selectedImage
+								? 'Zmień zdjęcie'
+								: 'Dodaj zdjęcie'}<input
+								bind:this={imageInput}
+								type="file"
+								name="image"
+								accept="image/jpeg,image/png,image/gif,image/webp"
+								aria-label="Zdjęcie do blipa"
+								aria-describedby="image-help"
+								onchange={selectImage}
+								disabled={pending}
+							/></label
+						>
+						<span id="image-help">JPG, PNG, GIF, WebP · do 5 MB</span>
+					</div>
+					{#if imageError}<p class="image-error" role="alert">{imageError}</p>{/if}
+					{#if selectedImage}<div class="image-preview">
+							<img src={imagePreview} alt="Podgląd zdjęcia do blipa" />
+							<div>
+								<strong>{selectedImage.name}</strong><span
+									>{Math.ceil(selectedImage.size / 1024)} KB</span
+								>
+							</div>
+							<button
+								type="button"
+								disabled={pending}
+								aria-label="Usuń wybrane zdjęcie"
+								onclick={clearImage}><Icon name="close" size={16} /></button
+							>
+						</div>{/if}
+				{/if}
 				<div class="composer-footer">
 					<div class="composer-options">
 						<label class="sr-only" for="category">Kategoria wpisu</label><span
@@ -415,12 +492,19 @@
 									rel="noreferrer"
 									><img
 										src={post.image}
-										alt="Skaliste szczyty Tatr w słońcu nad zieloną doliną"
+										alt={post.image === '/images/mountains.jpg'
+											? 'Skaliste szczyty Tatr w słońcu nad zieloną doliną'
+											: `Zdjęcie do blipa użytkownika ${post.name}`}
 										width="1000"
 										height="560"
 										loading="lazy"
 									/><span
-										><Icon name="compass" size={13} />Gdzieś w Tatrach. Z dala od wszystkiego.</span
+										><Icon
+											name={post.image === '/images/mountains.jpg' ? 'compass' : 'image'}
+											size={13}
+										/>{post.image === '/images/mountains.jpg'
+											? 'Gdzieś w Tatrach. Z dala od wszystkiego.'
+											: `Zdjęcie od ${post.name}`}</span
 									></a
 								>{/if}
 						</div>
@@ -628,7 +712,7 @@
 		<Icon name="globe" size={18} />
 		<p>
 			To lokalna wersja portalu. Twój profil jest przypisany do tej przeglądarki przez ciasteczko.
-			Wpisy i rozmowy zapisujemy w SQLite. Bez hasła, bez konta na innych urządzeniach.
+			Wpisy, rozmowy i zdjęcia zapisujemy w OpenRails. Bez hasła, bez konta na innych urządzeniach.
 		</p>
 	</div>
 </dialog>

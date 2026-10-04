@@ -3,14 +3,22 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 const directory = mkdtempSync(join(tmpdir(), 'bliza-ui-'));
 const port = '4189';
 const base = `http://127.0.0.1:${port}`;
+assert(
+	process.env.OPENRAILS_TOKEN,
+	'Set the server-side OPENRAILS_TOKEN before running the UI check'
+);
+const namespace = `bliza_ui_${randomUUID().replaceAll('-', '')}`;
 const server = Bun.spawn([process.execPath, 'build/index.js'], {
 	env: {
 		...process.env,
-		DB_PATH: join(directory, 'portal.sqlite'),
+		OPENRAILS_URL: process.env.OPENRAILS_URL || 'http://192.168.0.124:8787',
+		OPENRAILS_NAMESPACE: namespace,
+		BODY_SIZE_LIMIT: '6M',
 		PORT: port,
 		HOST: '127.0.0.1',
 		ORIGIN: base
@@ -21,7 +29,7 @@ const server = Bun.spawn([process.execPath, 'build/index.js'], {
 let browser;
 try {
 	let ready = false;
-	for (let i = 0; i < 50; i++) {
+	for (let i = 0; i < 100; i++) {
 		try {
 			if ((await fetch(base)).ok) {
 				ready = true;
@@ -133,14 +141,18 @@ try {
 	await page.locator('dialog[open]').waitFor({ state: 'hidden' });
 	assert.equal(await page.locator('.profile-name').innerText(), 'testowy_sąsiad');
 
-	await page.getByLabel('Twoje pytanie', { exact: true }).fill('Czy SQLite pamięta nasze rozmowy?');
+	await page
+		.getByLabel('Twoje pytanie', { exact: true })
+		.fill('Czy OpenRails pamięta nasze rozmowy?');
 	await page.getByRole('button', { name: '+ Dodaj opis', exact: true }).click();
 	await page
 		.getByLabel('Dopowiedz coś więcej', { exact: false })
 		.fill('To pytanie sprawdza trwały zapis. #sprawdzam');
 	await page.getByLabel('Kategoria wpisu', { exact: true }).selectOption('Komputery i internet');
 	await page.getByRole('button', { name: 'Zapytaj', exact: true }).click();
-	const post = page.locator('#post-10');
+	const post = page
+		.locator('article.post')
+		.filter({ hasText: 'Czy OpenRails pamięta nasze rozmowy?' });
 	await post.waitFor();
 	assert.match(await post.innerText(), /testowy_sąsiad/);
 	await post.getByRole('button', { name: /Polub wpis/ }).click();
@@ -159,7 +171,7 @@ try {
 
 	await page.goto(`${base}/?view=saved`);
 	assert.equal(await page.locator('article.post').count(), 1);
-	assert.match(await page.locator('article.post').innerText(), /Czy SQLite/);
+	assert.match(await page.locator('article.post').innerText(), /Czy OpenRails/);
 	await page.goto(base);
 	const person = page.locator('.person').first();
 	const personName = await person.locator('.person-info a').innerText();
@@ -173,10 +185,42 @@ try {
 	await page.goto(base);
 	await page.getByRole('button', { name: 'Napisz blipa', exact: true }).click();
 	await page.getByLabel('Twój blip', { exact: true }).fill('Krótki blip, długa pamięć. #sprawdzam');
+	const picker = page.getByLabel('Zdjęcie do blipa', { exact: true });
+	await picker.setInputFiles('static/images/mountains.jpg');
+	await page.locator('.image-preview').waitFor();
+	await page.getByRole('button', { name: 'Usuń wybrane zdjęcie', exact: true }).click();
+	assert.equal(await page.locator('.image-preview').count(), 0, 'Selected image can be removed');
+	await picker.setInputFiles('static/images/mountains.jpg');
+	await page.screenshot({ path: join(directory, 'upload-preview.png') });
 	await page.getByRole('button', { name: 'Blipnij', exact: true }).click();
-	await page.locator('#post-11').waitFor();
-	assert.match(await page.locator('#post-11 .post-kind').innerText(), /blip/);
-	await page.getByLabel('Szukaj pytań, blipów i ludzi').fill('Czy SQLite');
+	const blip = page
+		.locator('article.post')
+		.filter({ hasText: 'Krótki blip, długa pamięć. #sprawdzam' });
+	await blip.waitFor();
+	assert.match(await blip.locator('.post-kind').innerText(), /blip/);
+	const imagePath = await blip.locator('.post-photo img').getAttribute('src');
+	assert.match(imagePath, /^\/media\/[a-f0-9]{64}\.jpg$/);
+	const image = await page.request.get(`${base}${imagePath}`);
+	assert.equal(image.status(), 200, 'Uploaded image streams through the portal');
+	assert.equal(image.headers()['content-type'], 'image/jpeg');
+	assert.equal(image.headers()['x-content-type-options'], 'nosniff');
+	assert.deepEqual(
+		await image.body(),
+		Buffer.from(await Bun.file('static/images/mountains.jpg').arrayBuffer()),
+		'Uploaded bytes are preserved in OpenRails'
+	);
+	assert.equal(
+		await page.locator('.image-preview').count(),
+		0,
+		'Successful submission clears the preview'
+	);
+	await page.reload();
+	assert.equal(
+		await blip.locator('.post-photo img').getAttribute('src'),
+		imagePath,
+		'Image reference survives reload'
+	);
+	await page.getByLabel('Szukaj pytań, blipów i ludzi').fill('Czy OpenRails');
 	await page.getByRole('button', { name: 'Szukaj', exact: true }).click();
 	await page.waitForURL(/q=/);
 	assert.equal(await page.locator('article.post').count(), 1);
@@ -216,6 +260,55 @@ try {
 		form: { kind: 'blip', body: 'csrf', category: 'Codzienność' }
 	});
 	assert.equal(crossSite.status(), 403, 'Cross-origin writes are rejected');
+	const spoofedImage = await page.request.post(`${base}/?/publish`, {
+		headers,
+		multipart: {
+			kind: 'blip',
+			body: 'bad image',
+			category: 'Codzienność',
+			image: {
+				name: 'fake.png',
+				mimeType: 'image/png',
+				buffer: Buffer.from('<svg onload="alert(1)"/>')
+			}
+		}
+	});
+	assert.equal(spoofedImage.status(), 400, 'Server checks actual image bytes');
+	const hugeImage = await page.request.post(`${base}/?/publish`, {
+		headers,
+		multipart: {
+			kind: 'blip',
+			body: 'too big',
+			category: 'Codzienność',
+			image: { name: 'huge.jpg', mimeType: 'image/jpeg', buffer: Buffer.alloc(5 * 1024 * 1024 + 1) }
+		}
+	});
+	assert.equal(hugeImage.status(), 400, 'Server enforces the 5 MB image limit');
+	const questionImage = await page.request.post(`${base}/?/publish`, {
+		headers,
+		multipart: {
+			kind: 'question',
+			title: 'Zdjęcie do pytania?',
+			category: 'Codzienność',
+			image: {
+				name: 'photo.jpg',
+				mimeType: 'image/jpeg',
+				buffer: Buffer.from(await Bun.file('static/images/mountains.jpg').arrayBuffer())
+			}
+		}
+	});
+	assert.equal(questionImage.status(), 400, 'Attachments are only accepted on blips');
+	assert.equal(
+		(await page.request.get(`${base}/media/secret.txt`)).status(),
+		404,
+		'Media route cannot read arbitrary service files'
+	);
+	await page.goto(`${base}/?q=bad%20image`);
+	assert.equal(
+		await page.locator('article.post').count(),
+		0,
+		'Rejected upload does not create a post'
+	);
 
 	await page.goto(base);
 	await page.setViewportSize({ width: 390, height: 844 });
@@ -261,7 +354,7 @@ try {
 	await noJS.close();
 	assert.deepEqual(errors, [], 'No browser runtime errors');
 	console.log(
-		`PASS: production UI, SQLite writes, validation, CSRF, profile isolation, keyboard and responsive checks. Screenshots: ${directory}`
+		`PASS: production UI, OpenRails writes/uploads, validation, CSRF, profile isolation, keyboard and responsive checks. Namespace: ${namespace}. Screenshots: ${directory}`
 	);
 } finally {
 	await browser?.close();
