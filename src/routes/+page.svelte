@@ -175,6 +175,7 @@
 				if (result.type === 'success' && formElement.getAttribute('name') === 'recover') {
 					ticketDialog.close();
 					ticketFileName = '';
+					document.querySelectorAll('.reply-form').forEach((reply) => reply.reset());
 					draft = '';
 					description = '';
 					showDescription = false;

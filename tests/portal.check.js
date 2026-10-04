@@ -432,6 +432,12 @@ try {
 	const guestCookie = (await isolated.cookies()).find(
 		(cookie) => cookie.name === 'bliza_session'
 	).value;
+	await other.goto(base);
+	await other.locator('#post-1 summary').click();
+	await other
+		.locator('#post-1')
+		.getByLabel('Twoja odpowiedź', { exact: true })
+		.fill('Szkic poprzedniego profilu.');
 	await other.getByRole('button', { name: 'Mam bilet!', exact: true }).click();
 	const returnMachine = other.getByRole('dialog', { name: 'Bilet powrotny.', exact: true });
 	const ticketPicker = returnMachine.getByLabel('Bilet powrotny w pliku TXT', { exact: true });
@@ -447,6 +453,11 @@ try {
 		(await isolated.cookies()).find((cookie) => cookie.name === 'bliza_session').value,
 		guestCookie,
 		'Rejected ticket leaves the original session unchanged'
+	);
+	assert.equal(
+		await other.locator('#post-1').getByLabel('Twoja odpowiedź', { exact: true }).inputValue(),
+		'Szkic poprzedniego profilu.',
+		'Failed recovery keeps existing drafts'
 	);
 	const dropTarget = await ticketPicker.boundingBox();
 	const drag = await isolated.newCDPSession(other);
@@ -481,6 +492,11 @@ try {
 		restoredCookie.value,
 		credential[3],
 		'Recovery creates a fresh session rather than using the recovery key as a cookie'
+	);
+	assert.equal(
+		await other.locator('#post-1').getByLabel('Twoja odpowiedź', { exact: true }).inputValue(),
+		'',
+		'Account switching clears the previous profile reply draft'
 	);
 	assert.equal(restoredCookie.httpOnly, true);
 	assert.equal(restoredCookie.sameSite, 'Lax');
