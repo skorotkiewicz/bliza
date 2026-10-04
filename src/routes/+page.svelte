@@ -366,7 +366,7 @@
 			<h1>O czym dziś pogadamy<span>?</span></h1>
 			<p>Zadaj pytanie. Podziel się chwilą. Znajdź swoich ludzi.</p>
 		</div>
-		{#if !data.user.approved}<div class="verification-notice"><span>Przed publikacją poproś moderatora o zatwierdzenie konta.</span><button onclick={openProfile}>Otwórz profil<Icon name="arrow" size={14} /></button></div>{/if}
+		{#if data.approvalRequired && !data.user.approved}<div class="verification-notice"><span>Przed publikacją poproś moderatora o zatwierdzenie konta.</span><button onclick={openProfile}>Otwórz profil<Icon name="arrow" size={14} /></button></div>{/if}
 		<section id="composer" class="composer panel" aria-label="Dodaj pytanie lub blipa">
 			<div class="composer-tabs">
 				<button
@@ -469,7 +469,7 @@
 								>{draft.length}<span> / 160</span></span
 							>{/if}
 					</div>
-					<button class="publish-button" disabled={pending || !data.user.approved} type="submit"
+					<button class="publish-button" disabled={pending || (data.approvalRequired && !data.user.approved)} type="submit"
 						>{pending ? 'Chwileczkę…' : kind === 'question' ? 'Zapytaj' : 'Blipnij'}<Icon
 							name="arrow"
 							size={16}
@@ -632,7 +632,7 @@
 											rows="2"
 											placeholder="Dołącz do rozmowy…"></textarea><button
 											class="publish-button"
-											disabled={pending || !data.user.approved}
+											disabled={pending || (data.approvalRequired && !data.user.approved)}
 											type="submit">Odpowiedz<Icon name="send" size={14} /></button
 										>
 									</form>
@@ -790,7 +790,7 @@
 			>Zapisz nick<Icon name="check" size={16} /></button
 		>
 	</form>
-	<section class="account-verification"><h3>{data.user.approved?'Konto zatwierdzone':'Poznajmy się przed publikacją.'}</h3><p>Zatwierdzenie moderatora nie oznacza prawnej weryfikacji tożsamości. Nie wysyłaj dokumentów ani danych wrażliwych.</p>{#if !data.user.approved}{#if data.user.verification}<p>Prośba czeka na moderatora. Przekaż mu kod w uzgodnionym kanale: <strong class="verification-code">{data.user.verification.code}</strong></p>{:else}<form method="POST" action="?/verification" name="verification" use:enhance={submit}><label for="verification-note">Kilka słów do moderatora</label><textarea id="verification-note" name="note" required minlength="10" maxlength="500" rows="2" placeholder="Kim jesteś w naszej społeczności? Bez danych wrażliwych."></textarea><button class="ticket-return" disabled={pending}>Poproś o zatwierdzenie konta</button></form>{/if}{/if}</section>
+	<section class="account-verification"><h3>{data.user.approved?'Konto zatwierdzone':data.approvalRequired?'Poznajmy się przed publikacją.':'Dobrowolne zatwierdzenie konta'}</h3><p>Zatwierdzenie moderatora nie oznacza prawnej weryfikacji tożsamości. Nie wysyłaj dokumentów ani danych wrażliwych.</p>{#if !data.user.approved}{#if data.user.verification}<p>Prośba czeka na moderatora. Przekaż mu kod w uzgodnionym kanale: <strong class="verification-code">{data.user.verification.code}</strong></p>{:else}<form method="POST" action="?/verification" name="verification" use:enhance={submit}><label for="verification-note">Kilka słów do moderatora</label><textarea id="verification-note" name="note" required minlength="10" maxlength="500" rows="2" placeholder="Kim jesteś w naszej społeczności? Bez danych wrażliwych."></textarea><button class="ticket-return" disabled={pending}>Poproś o zatwierdzenie konta</button></form>{/if}{/if}</section>
 	<section class="account-sessions"><h3>Gdzie jesteś zalogowany?</h3><ul>{#each data.sessions as session}<li><div><strong>{session.device}</strong><span>{new Date(session.created).toLocaleString('pl-PL')}</span></div>{#if session.current}<span>To urządzenie</span>{:else}<form method="POST" action="?/session" name="session" use:enhance={submit}><input type="hidden" name="id" value={session.id} /><button class="ticket-profile-link" disabled={pending} aria-label={`Wyloguj sesję: ${session.device}`}>Wyloguj</button></form>{/if}</li>{/each}</ul>{#if data.sessions.length>1}<form method="POST" action="?/others" name="others" use:enhance={submit}><label class="admin-confirm"><input type="checkbox" name="confirmed" value="yes" required />Chcę wylogować pozostałe urządzenia.</label><button class="ticket-return" disabled={pending}>Wyloguj inne urządzenia</button></form>{/if}<p>Nowy bilet unieważnia stary plik i wylogowuje inne urządzenia.</p><form method="POST" action="?/logout" name="logout" use:enhance={submit}><label class="admin-confirm"><input type="checkbox" name="confirmed" value="yes" required />Mam zapisany bilet albo świadomie zostawiam ten profil.</label><button class="ticket-return" disabled={pending}>Wyjdź na chwilę</button></form></section>
 	<div class="local-profile-note">
 		<Icon name="ticket" size={20} />

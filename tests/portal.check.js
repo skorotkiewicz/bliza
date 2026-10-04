@@ -20,7 +20,7 @@ const server = Bun.spawn([process.execPath, '--no-env-file', 'build/index.js'], 
 		OPENRAILS_URL: process.env.OPENRAILS_URL || 'http://192.168.0.124:8787',
 		OPENRAILS_NAMESPACE: namespace,
 		BODY_SIZE_LIMIT: '6M',
-		ADMIN:adminKey,SEED_DEMO:'true',
+		ADMIN:adminKey,SEED_DEMO:'true',REQUIRE_APPROVAL:'true',
 		PORT: port,
 		HOST: '127.0.0.1',
 		ORIGIN: base
@@ -629,7 +629,7 @@ try {
 	);
 	await page.keyboard.press('Escape');
 	await other.keyboard.press('Escape');
-	secondServer=Bun.spawn([process.execPath,'--no-env-file','build/index.js'],{env:{...process.env,OPENRAILS_NAMESPACE:namespace,ADMIN:adminKey,SEED_DEMO:'true',BODY_SIZE_LIMIT:'6M',HOST:'127.0.0.1',PORT:'4191',ORIGIN:base},stdout:'ignore',stderr:'inherit'});
+	secondServer=Bun.spawn([process.execPath,'--no-env-file','build/index.js'],{env:{...process.env,OPENRAILS_NAMESPACE:namespace,ADMIN:adminKey,SEED_DEMO:'true',REQUIRE_APPROVAL:'true',BODY_SIZE_LIMIT:'6M',HOST:'127.0.0.1',PORT:'4191',ORIGIN:base},stdout:'ignore',stderr:'inherit'});
 	let siblingReady=false;for(let i=0;i<100;i++){try{if((await fetch('http://127.0.0.1:4191/healthz')).ok){siblingReady=true;break;}}catch{}await Bun.sleep(100);}
 	assert(siblingReady,'Second application instance starts against the same backend');
 	assert.equal((await isolated.request.post('http://127.0.0.1:4191/?/like',{headers,form:{id:blipId}})).status(),200,'Recovered session works on a second process before revocation');
@@ -653,10 +653,21 @@ try {
 	await page.reload();
 	assert.equal((await page.request.post(`${base}/admin?/cleanup`,{headers,form:{confirmed:'yes'}})).status(),401,'Cleanup requires administrator authentication');
 	assert.equal((await adminBrowser.request.post(`${base}/admin?/cleanup`,{headers,form:{}})).status(),400,'Cleanup requires explicit confirmation');
-	disabledServer=Bun.spawn([process.execPath,'--no-env-file','build/index.js'],{env:{...process.env,OPENRAILS_NAMESPACE:namespace,ADMIN:'',BODY_SIZE_LIMIT:'6M',HOST:'127.0.0.1',PORT:'4190',ORIGIN:base},stdout:'ignore',stderr:'inherit'});
+	disabledServer=Bun.spawn([process.execPath,'--no-env-file','build/index.js'],{env:{...process.env,OPENRAILS_NAMESPACE:namespace,ADMIN:'',REQUIRE_APPROVAL:'false',BODY_SIZE_LIMIT:'6M',HOST:'127.0.0.1',PORT:'4190',ORIGIN:base},stdout:'ignore',stderr:'inherit'});
 	let disabledReady=false;for(let i=0;i<100;i++){try{if((await fetch('http://127.0.0.1:4190/admin')).status===404){disabledReady=true;break;}}catch{}await Bun.sleep(100);}
 	assert(disabledReady,'Blank ADMIN disables the admin page');
 	assert.equal((await adminBrowser.request.post('http://127.0.0.1:4190/admin?/moderate',{headers,form:{kind:'user',id:ownerId,operation:'ban',reason:'Nie powinno działać'}})).status(),404,'Blank ADMIN disables mutations despite an existing administrator cookie');
+	const optionalContext=await browser.newContext({javaScriptEnabled:false}),optionalPage=await optionalContext.newPage();
+	const optionalBase='http://127.0.0.1:4190';await optionalPage.goto(optionalBase);
+	assert.equal(await optionalPage.locator('.verification-notice').count(),0,'Optional approval hides the publishing notice');
+	assert(!(await optionalPage.getByRole('button',{name:'Zapytaj',exact:true}).isDisabled()),'Unapproved visitor can use the composer when approval is optional');
+	const optionalPublish=await optionalContext.request.post(`${optionalBase}/?/publish`,{headers,form:{kind:'question',title:'Czy zatwierdzenie może być dobrowolne?',body:'Sprawdzamy opcję serwera.',category:'Codzienność',nonce:await optionalPage.locator('input[name="nonce"]').inputValue()}});
+	assert.equal(optionalPublish.status(),200,'Server allows unapproved publication with REQUIRE_APPROVAL=false');
+	await optionalPage.reload();const optionalPost=optionalPage.locator('article.post').filter({hasText:'Czy zatwierdzenie może być dobrowolne?'});
+	await optionalPost.locator('summary').click();
+	assert(!(await optionalPost.getByRole('button',{name:'Odpowiedz',exact:true}).isDisabled()),'Optional approval enables reply controls');
+	assert.equal((await optionalContext.request.post(`${optionalBase}/?/reply`,{headers,form:{id:await optionalPost.locator('.reply-form input[name="id"]').inputValue(),body:'Tak, ustawieniem środowiska.'}})).status(),200,'Server allows unapproved replies');
+	await optionalContext.close();
 	for(const width of [1440,390,320]) {
 		await moderator.setViewportSize({width,height:844});await moderator.goto(`${base}/admin?view=posts`);
 		assert.equal(await moderator.evaluate(()=>document.documentElement.scrollWidth),width,'Admin layout does not overflow');

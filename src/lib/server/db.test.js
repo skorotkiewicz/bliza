@@ -6,6 +6,7 @@ import { uploadImage, MAX_IMAGE_SIZE, IMAGE_NAME } from './images.js';
 import { formatTicket, parseTicket, MAX_TICKET_SIZE } from './tickets.js';
 
 process.env.SEED_DEMO='false';
+process.env.REQUIRE_APPROVAL='true';
 test.skipIf(!process.env.OPENRAILS_TOKEN)('atomic account approval, concurrent mutations, moderation and revoked sessions',async()=>{
 	const namespace=`bliza_test_${randomUUID().replaceAll('-','')}`;
 	const first=openStore(namespace),second=openStore(namespace);
@@ -76,6 +77,22 @@ test.skipIf(!process.env.OPENRAILS_TOKEN)('atomic account approval, concurrent m
 	await first.collections.admin_sessions.put(admin.key,{...admin.record,revoked:true});
 	await expect(second.moderate(admin,'post',id,'hide','Sesja już zamknięta')).rejects.toThrow('administratora');
 	console.log(`Integration namespace: ${namespace}`);
+},60000);
+
+test.skipIf(!process.env.OPENRAILS_TOKEN)('approval can be optional without changing account status',async()=>{
+	const previous=process.env.REQUIRE_APPROVAL;
+	try {
+		delete process.env.REQUIRE_APPROVAL;
+		const store=openStore(`bliza_test_${randomUUID().replaceAll('-','')}`),guest=await store.visitor();
+		await expect(store.addPost(guest.token,'blip','','Domyślnie z zatwierdzeniem','Codzienność')).rejects.toThrow('zatwierdzenie');
+		process.env.REQUIRE_APPROVAL='false';
+		const id=await store.addPost(guest.token,'blip','','Zatwierdzenie dobrowolne','Codzienność');
+		await store.reply(guest.token,id,'Odpowiedzi też są dostępne.');
+		expect((await store.authenticated(guest.token)).approved).toBe(false);
+		expect((await store.feed(guest.user.id)).posts[0].replies).toHaveLength(1);
+		process.env.REQUIRE_APPROVAL='true';
+		await expect(store.reply(guest.token,id,'Znowu wymagamy zatwierdzenia.')).rejects.toThrow('zatwierdzenie');
+	} finally {process.env.REQUIRE_APPROVAL=previous;}
 },60000);
 
 test('ticket parser rejects malformed and cross-portal credentials',()=>{

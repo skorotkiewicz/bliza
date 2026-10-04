@@ -1,6 +1,6 @@
 import { fail, error, isRedirect, isHttpError } from '@sveltejs/kit';
 import { randomUUID } from 'node:crypto';
-import { store, categories, Problem } from '#lib/server/db.js';
+import { store, categories, Problem, approvalRequired } from '#lib/server/db.js';
 import { currentUser, actor, sessionCookie, readForm } from '#lib/server/auth.js';
 import { uploadImage } from '#lib/server/images.js';
 import { MAX_TICKET_SIZE } from '#lib/server/tickets.js';
@@ -18,7 +18,7 @@ export async function load(event) {
 			(SELECT COUNT(*) FROM bookmarks WHERE user_id=?) AS saved,(SELECT COUNT(*) FROM posts WHERE kind='question' AND NOT EXISTS(SELECT 1 FROM replies WHERE post_id=posts.id)) AS unanswered`,user.id,user.id,user.id),
 			store.collections.tickets.get(user.id),store.sessionList(event.cookies.get('bliza_session'))
 		]);
-		return {user,...feed,postNonce:randomUUID(),sessions,hasTicket:Boolean(ticket),filters:Object.fromEntries(event.url.searchParams),categories:categories.map(([name,icon])=>({name,icon,count:counts.find((r)=>r.category===name)?.n||0})),trending:[...trending],people:[...people],stats:stats[0]};
+		return {user,approvalRequired:approvalRequired(),...feed,postNonce:randomUUID(),sessions,hasTicket:Boolean(ticket),filters:Object.fromEntries(event.url.searchParams),categories:categories.map(([name,icon])=>({name,icon,count:counts.find((r)=>r.category===name)?.n||0})),trending:[...trending],people:[...people],stats:stats[0]};
 	} catch { error(503,'OpenRails jest niedostępny lub wymaga aktualizacji API transakcji. Sprawdź konfigurację serwera.'); }
 }
 const text=(form,name)=>typeof form.get(name)==='string'?form.get(name).trim():'';
@@ -43,7 +43,7 @@ const handlers={
 		const id=text(form,'nonce'); if(!uuid(id))return fail(400,{error:'Odśwież formularz przed publikacją.',values});
 		const file=form.get('image');if(file&&(!(file instanceof File)||(file.size&&kind!=='blip')))return fail(400,{error:'Zdjęcia możesz dodawać tylko do blipów.',values});
 		try {
-			const {user,token}=await actor(event);if(!user.approved)throw new Problem(403,'Poproś moderatora o zatwierdzenie konta w swoim profilu.');
+			const {user,token}=await actor(event);if(approvalRequired() && !user.approved)throw new Problem(403,'Poproś moderatora o zatwierdzenie konta w swoim profilu.');
 			const attachment=await uploadImage(file);await store.addPost(token,kind,kind==='question'?title:'',body,category,attachment,Date.now(),id);
 			return {success:kind==='question'?'Pytanie dodane. Teraz czas na odpowiedzi!':'Blip poszedł w świat!'};
 		}catch(err){return fail(err instanceof Problem?err.status:503,{error:err instanceof Problem?err.message:'Nie udało się zapisać wpisu. Spróbuj ponownie; szkic został w formularzu.',values});}

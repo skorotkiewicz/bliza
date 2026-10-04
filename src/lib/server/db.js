@@ -4,6 +4,7 @@ import { formatTicket, parseTicket } from './tickets.js';
 
 process.env.OPENRAILS_URL ||= 'http://192.168.0.124:8787';
 export const categories = [['Codzienność','coffee'],['Szkoła i nauka','book'],['Komputery i internet','monitor'],['Muzyka','music'],['Filmy i seriale','film'],['Relacje','heart'],['Podróże','compass'],['Pozostałe','grid']];
+export const approvalRequired = () => process.env.REQUIRE_APPROVAL !== 'false';
 export const digest = (value) => createHash('sha256').update(value).digest('hex');
 export class Problem extends Error { constructor(status, message) { super(message); this.status = status; } }
 const safeId=(value)=>{ if(typeof value!=='string' || !/^(?:[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}|(?:seed-)?[0-9]{1,12})$/.test(value)) throw new Problem(400,'Niepoprawny identyfikator.'); };
@@ -187,7 +188,7 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 	async function required(token,approved=false) {
 		const ctx=await context(token);
 		if(!ctx) throw new Problem(401,'Sesja wygasła lub została wylogowana. Wróć z biletem.');
-		if(approved && !ctx.policy.approved) throw new Problem(403,'Przed publikacją poproś moderatora o zatwierdzenie konta w swoim profilu.');
+		if(approved && approvalRequired() && !ctx.policy.approved) throw new Problem(403,'Przed publikacją poproś moderatora o zatwierdzenie konta w swoim profilu.');
 		return ctx;
 	}
 	async function slot(key,maximum,window=60000) {
