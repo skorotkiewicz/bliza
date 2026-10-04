@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import { randomUUID, randomBytes } from 'node:crypto';
 import sharp from 'sharp';
 import { openStore, digest } from './db.js';
-import { uploadImage, MAX_IMAGE_SIZE } from './images.js';
+import { uploadImage, MAX_IMAGE_SIZE, IMAGE_NAME } from './images.js';
 import { formatTicket, parseTicket, MAX_TICKET_SIZE } from './tickets.js';
 
 process.env.SEED_DEMO='false';
@@ -14,6 +14,7 @@ test.skipIf(!process.env.OPENRAILS_TOKEN)('atomic account approval, concurrent m
 	expect((await second.visitor(owner.token)).user.id).toBe(owner.user.id);
 	expect((await first.visitor(owner.user.id)).user.id).not.toBe(owner.user.id);
 	expect(await first.authenticated('not-a-token')).toBeNull();
+	expect(await second.authenticated(digest(owner.token))).toBeNull();
 	expect((await first.feed(owner.user.id)).total).toBe(0);
 	await expect(first.addPost(owner.token,'blip','','Bez zgody','Codzienność')).rejects.toThrow('zatwierdzenie');
 	const admin={key:digest(randomBytes(32)),record:{id:randomUUID(),expires:Date.now()+3600000,revoked:false}};
@@ -72,11 +73,6 @@ test.skipIf(!process.env.OPENRAILS_TOKEN)('atomic account approval, concurrent m
 	expect(await second.authenticated(latest.token)).toBeNull();expect(await second.recoverTicket(replacement)).not.toBeNull();
 	const outcomes=await Promise.allSettled([first.limit('shared-check',1),second.limit('shared-check',1)]);
 	expect(outcomes.filter((x)=>x.status==='fulfilled')).toHaveLength(1);expect(outcomes.find((x)=>x.status==='rejected').reason.status).toBe(429);
-	const legacy={id:randomUUID(),name:'starszy_profil',avatar:'pixel'},legacyToken=randomBytes(32).toString('hex');
-	await first.collections.users.put(legacy.id,{name:legacy.name,avatar:legacy.avatar});await first.collections.sessions.put(legacyToken,{user_id:legacy.id,created:Date.now()});
-	expect((await second.authenticated(legacyToken)).id).toBe(legacy.id);
-	const legacyDevice=(await second.sessionList(legacyToken))[0];expect(legacyDevice.id).toBe(`legacy_${digest(legacyToken)}`);expect(JSON.stringify(legacyDevice)).not.toContain(legacyToken);
-	await second.revokeSession(legacyToken,legacyDevice.id);expect(await first.authenticated(legacyToken)).toBeNull();
 	await first.collections.admin_sessions.put(admin.key,{...admin.record,revoked:true});
 	await expect(second.moderate(admin,'post',id,'hide','Sesja już zamknięta')).rejects.toThrow('administratora');
 	console.log(`Integration namespace: ${namespace}`);
@@ -91,6 +87,8 @@ test('ticket parser rejects malformed and cross-portal credentials',()=>{
 });
 
 test('raster decoding strips metadata and rejects SVG, spoofed MIME and oversized uploads',async()=>{
+	expect(IMAGE_NAME.test(`${randomUUID()}.webp`)).toBe(true);
+	expect(IMAGE_NAME.test(`${'a'.repeat(64)}.jpg`)).toBe(false);
 	expect(await uploadImage(null)).toBeNull();expect(await uploadImage(new File([],'empty.jpg'))).toBeNull();
 	await expect(uploadImage(new File(['<svg onload="alert(1)"/>'],'bad.svg',{type:'image/svg+xml'}))).rejects.toThrow('formacie');
 	await expect(uploadImage(new File([new Uint8Array([255,216,255])],'fake.png',{type:'image/png'}))).rejects.toThrow('nie pasuje');

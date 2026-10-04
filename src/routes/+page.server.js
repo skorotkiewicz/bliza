@@ -1,6 +1,6 @@
 import { fail, error, isRedirect, isHttpError } from '@sveltejs/kit';
 import { randomUUID } from 'node:crypto';
-import { store, categories, Problem, digest } from '#lib/server/db.js';
+import { store, categories, Problem } from '#lib/server/db.js';
 import { currentUser, actor, sessionCookie, readForm } from '#lib/server/auth.js';
 import { uploadImage } from '#lib/server/images.js';
 import { MAX_TICKET_SIZE } from '#lib/server/tickets.js';
@@ -53,9 +53,9 @@ const handlers={
 	profile:async(event)=>{const {token}=await actor(event),name=text(await readForm(event),'name');if(!/^[\p{L}\p{N}_.]{3,24}$/u.test(name))return fail(400,{error:'Nick: 3–24 litery, cyfry, kropki lub podkreślenia.'});if(!await store.rename(token,name))return fail(400,{error:'Ten nick jest już zajęty. Wybierz inny.'});return {success:'Gotowe. Miło Cię poznać!',profileSaved:true};},
 	verification:async(event)=>{const {token}=await actor(event),note=text(await readForm(event),'note');if(note.length<10||note.length>500)return fail(400,{error:'Napisz od 10 do 500 znaków. Nie wysyłaj danych wrażliwych.'});await store.verification(token,note);return {success:'Prośba wysłana. Kod potwierdzenia znajdziesz w swoim profilu.'};},
 	report:async(event)=>{const {token}=await actor(event),form=await readForm(event),reason=text(form,'reason');if(reason.length<5||reason.length>500)return fail(400,{error:'Powód zgłoszenia: 5–500 znaków.'});await store.report(token,text(form,'kind'),text(form,'id'),reason);return {success:'Zgłoszenie dotarło do moderatora.'};},
-	session:async(event)=>{const {token,ctx}=await actor(event),form=await readForm(event),id=text(form,'id');if(id===(ctx.session.id||`legacy_${digest(ctx.key)}`)&&form.get('confirmed')!=='yes')return fail(400,{error:'Zapisz bilet i potwierdź wylogowanie.'});const loggedOut=await store.revokeSession(token,id);if(loggedOut)event.cookies.delete('bliza_session',{path:'/'});return {loggedOut,success:'Sesja wylogowana.'};},
+	session:async(event)=>{const {token,ctx}=await actor(event),form=await readForm(event),id=text(form,'id');if(id===ctx.session.id&&form.get('confirmed')!=='yes')return fail(400,{error:'Zapisz bilet i potwierdź wylogowanie.'});const loggedOut=await store.revokeSession(token,id);if(loggedOut)event.cookies.delete('bliza_session',{path:'/'});return {loggedOut,success:'Sesja wylogowana.'};},
 	others:async(event)=>{const {token}=await actor(event);if((await readForm(event)).get('confirmed')!=='yes')return fail(400,{error:'Potwierdź wylogowanie innych urządzeń.'});await store.revokeOthers(token);return {success:'Pozostałe urządzenia zostały wylogowane.'};},
-	logout:async(event)=>{const {token,ctx}=await actor(event);if((await readForm(event)).get('confirmed')!=='yes')return fail(400,{error:'Zapisz bilet i potwierdź wylogowanie.'});await store.revokeSession(token,ctx.session.id||`legacy_${digest(ctx.key)}`);event.cookies.delete('bliza_session',{path:'/'});return {loggedOut:true,success:'Do zobaczenia! Wróć ze swoim biletem.'};}
+	logout:async(event)=>{const {token,ctx}=await actor(event);if((await readForm(event)).get('confirmed')!=='yes')return fail(400,{error:'Zapisz bilet i potwierdź wylogowanie.'});await store.revokeSession(token,ctx.session.id);event.cookies.delete('bliza_session',{path:'/'});return {loggedOut:true,success:'Do zobaczenia! Wróć ze swoim biletem.'};}
 };
 async function relation(event,table){const {token}=await actor(event),id=text(await readForm(event),'id');await store.toggle(table,token,id);return {success:null};}
 export const actions=Object.fromEntries(Object.entries(handlers).map(([name,fn])=>[name,async(event)=>{try{return await fn(event);}catch(err){if(isRedirect(err)||isHttpError(err))throw err;return fail(err instanceof Problem?err.status:503,{[name==='recover'?'ticketError':'error']:err instanceof Problem?err.message:'OpenRails jest chwilowo niedostępny. Spróbuj ponownie.'});}}]));

@@ -61,13 +61,13 @@ The admin panel has reports, accounts, posts, replies and an audit log. Hiding, 
 
 ### Devices and concurrency
 
-Profiles show active devices using approximate browser/OS labels. Owners can revoke individual sessions, log out other devices or explicitly log out this browser. Revoked sessions cannot mutate through any application instance. Sessions and tickets are checked again inside conditional writes. New session tokens are stored only as hashes; existing legacy sessions remain compatible. Ordinary logout does not invalidate a ticket, so replace a leaked file as well.
+Profiles show active devices using approximate browser/OS labels. Owners can revoke individual sessions, log out other devices or explicitly log out this browser. Revoked sessions cannot mutate through any application instance. Sessions and tickets are checked again inside conditional writes. Session tokens are stored only as hashes. Ordinary logout does not invalidate a ticket, so replace a leaked file as well.
 
 Multiple app instances must share the same authoritative OpenRails project, namespace and `ADMIN` configuration. Keep their clocks synchronized. Independent backend copies are not a cluster. Rate limits, nickname reservations, relation toggles and ticket rotation are enforced through backend conditional transactions. Under persistent contention an operation returns 409 rather than silently losing a write.
 
 ### File maintenance and deployment
 
-New image metadata and its post are atomic, so failed post persistence does not publish an unreferenced upload. A crash or failed filesystem/SQL commit can leave a private, unreferenced temporary blob. The explicitly confirmed admin cleanup removes only server-generated blobs and temporary files that no file metadata references, across the OpenRails project. It preserves portal records, live images, hidden-image references and legacy file metadata. Legacy metadata without a post is intentionally not automatically deleted. Cleanup holds the backend writer lock while scanning, so run it off-peak on large projects.
+New image metadata and its post are atomic, so failed post persistence does not publish an unreferenced upload. A crash or failed filesystem/SQL commit can leave a private, unreferenced temporary blob. The explicitly confirmed admin cleanup removes only server-generated blobs and temporary files that no file metadata references, across the OpenRails project. It preserves portal records and all referenced files, including hidden images. Cleanup holds the backend writer lock while scanning, so run it off-peak on large projects.
 
 Before upgrading the backend, take a consistent backup of its database and file directory, deploy the updated binary, and verify `/healthz`. Configure a strong `ADMIN`, public HTTPS and the production `ORIGIN` on every instance. The LAN backend still needs the actual update before this build can serve portal data. Do not bypass an SSH host-key mismatch: verify the new fingerprint through a trusted channel first.
 

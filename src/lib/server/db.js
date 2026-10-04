@@ -7,7 +7,6 @@ export const categories = [['Codzienność','coffee'],['Szkoła i nauka','book']
 export const digest = (value) => createHash('sha256').update(value).digest('hex');
 export class Problem extends Error { constructor(status, message) { super(message); this.status = status; } }
 const safeId=(value)=>{ if(typeof value!=='string' || !/^(?:[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}|(?:seed-)?[0-9]{1,12})$/.test(value)) throw new Problem(400,'Niepoprawny identyfikator.'); };
-const policyDefault = () => ({ generation: 'legacy', approved: false, banned: false });
 
 export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza') {
 	if (!/^[a-z][a-z0-9_]{0,50}$/.test(namespace)) throw new Error('Invalid OpenRails namespace');
@@ -135,7 +134,7 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 			[9, 7, '10 minut codziennie zamiast dwóch godzin raz w tygodniu. U mnie działa.']
 		];
 		const now=Date.now(); const puts=[];
-		for (const [i,[name,avatar]] of people.entries()) { puts.push(put('users',`seed-${i}`,{name,avatar})); puts.push(put('names',digest(name),{user_id:`seed-${i}`})); }
+		for (const [i,[name,avatar]] of people.entries()) { puts.push(put('users',`seed-${i}`,{name,avatar})); puts.push(put('accounts',`seed-${i}`,{generation:randomUUID(),approved:false,banned:false})); puts.push(put('names',digest(name),{user_id:`seed-${i}`})); }
 		for (const [i,[user,kind,title,body,category,image]] of posts.entries()) {
 			const id=String(i+1); puts.push(put('posts',id,{user_id:`seed-${user}`,kind,title,body,category,image,created:now-(i*13+4)*60000,tags:tagList(title,body)}));
 			for (let j=0;j<8-(i%5);j++) puts.push(put('likes',`seed-${j}/${id}`,{user_id:`seed-${j}`,post_id:id}));
@@ -152,7 +151,7 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		const setup=await collections.meta.get('setup');
 		if(setup?.status==='ready') return;
 		try {
-			if(process.env.SEED_DEMO==='true' && (setup?.status==='seeding' || !(await collections.users.query().count()))) await seed(setup);
+			if(process.env.SEED_DEMO==='true' && !(await collections.users.query().count())) await seed(setup);
 			else await db.transaction({checks:[check('meta','setup',setup)],puts:[put('meta','setup',{status:'ready'})]});
 		} catch(err) { if(!(err instanceof ApiError) || err.status!==409 || (await collections.meta.get('setup'))?.status!=='ready') throw err; }
 	})().catch((err)=>{ initialization=undefined; throw err; }); }
@@ -160,13 +159,11 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 	async function context(token) {
 		if(typeof token!=='string' || !/^[a-f0-9]{64}$/.test(token)) return null;
 		await init();
-		let key=digest(token); let session=await collections.sessions.get(key);
-		if(!session) { key=token; session=await collections.sessions.get(key); }
-		if(!session || session.revoked || !(session.created>Date.now()-365*86400000)) return null;
+		const key=digest(token), session=await collections.sessions.get(key);
+		if(!session || !session.id || !session.generation || session.revoked || !(session.created>Date.now()-365*86400000)) return null;
 		const [user,account]=await Promise.all([collections.users.get(session.user_id),collections.accounts.get(session.user_id)]);
-		const policy=account||policyDefault();
-		if(!user || policy.banned || (session.generation||'legacy')!==policy.generation) return null;
-		return { user:{...user,id:session.user_id,approved:policy.approved,verification:policy.request||null}, policy, account, session, key,
+		if(!user || !account || account.banned || session.generation!==account.generation) return null;
+		return { user:{...user,id:session.user_id,approved:account.approved,verification:account.request||null}, policy:account, session, key,
 			checks:[check('sessions',key,session),check('accounts',session.user_id,account)] };
 	}
 	const authenticated = async(token) => (await context(token))?.user||null;
@@ -179,9 +176,9 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		await init(); const existing=await context(token); if(existing) return {user:existing.user,token};
 		if(address) await limit(`guest:${address}`,20,3600000);
 		return retry(async()=>{
-			const id=randomUUID(), name=`nowy_${id.slice(0,8)}`, secret=randomBytes(32).toString('hex'), policy={...policyDefault(),generation:randomUUID()};
+			const id=randomUUID(), name=`nowy_${id.slice(0,8)}`, secret=randomBytes(32).toString('hex'), policy={generation:randomUUID(),approved:false,banned:false};
 			const registry=await collections.names.get(digest(name));
-			if(registry || (await read('SELECT id FROM users WHERE name=?',name)).length) throw new ApiError(409,'Name collision');
+			if(registry) throw new ApiError(409,'Name collision');
 			const user={name,avatar:'pixel'};
 			await db.transaction({checks:[check('names',digest(name),null)],puts:[put('users',id,user),put('accounts',id,policy),put('names',digest(name),{user_id:id}),put('sessions',digest(secret),sessionRecord(id,policy.generation,device))]});
 			return {user:{...user,id,approved:false,verification:null},token:secret};
@@ -212,16 +209,15 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		const ticket=parseTicket(text,namespace); if(!ticket) return null; await init();
 		return retry(async()=>{
 			const [saved,user,account]=await Promise.all([collections.tickets.get(ticket.id),collections.users.get(ticket.id),collections.accounts.get(ticket.id)]);
-			const policy=account||policyDefault();
-			if(!user || policy.banned || typeof saved?.hash!=='string' || !/^[a-f0-9]{64}$/.test(saved.hash) || !timingSafeEqual(Buffer.from(saved.hash,'hex'),Buffer.from(digest(ticket.secret),'hex'))) return null;
+			if(!user || !account || account.banned || typeof saved?.hash!=='string' || !/^[a-f0-9]{64}$/.test(saved.hash) || !timingSafeEqual(Buffer.from(saved.hash,'hex'),Buffer.from(digest(ticket.secret),'hex'))) return null;
 			const token=randomBytes(32).toString('hex');
-			await db.transaction({checks:[check('tickets',ticket.id,saved),check('accounts',ticket.id,account)],puts:[put('sessions',digest(token),sessionRecord(ticket.id,policy.generation,device))]});
-			return {user:{...user,id:ticket.id,approved:policy.approved},token};
+			await db.transaction({checks:[check('tickets',ticket.id,saved),check('accounts',ticket.id,account)],puts:[put('sessions',digest(token),sessionRecord(ticket.id,account.generation,device))]});
+			return {user:{...user,id:ticket.id,approved:account.approved},token};
 		});
 	}
 	function rename(token,name) { return retry(async()=>{
 		const ctx=await required(token); const desired=await collections.names.get(digest(name));
-		if(desired && desired.user_id!==ctx.user.id || (await read('SELECT id FROM users WHERE name=? AND id!=?',name,ctx.user.id)).length) return false;
+		if(desired && desired.user_id!==ctx.user.id) return false;
 		const old=await collections.users.get(ctx.user.id); const oldRegistry=await collections.names.get(digest(old.name));
 		const checks=[...ctx.checks,check('users',ctx.user.id,old),check('names',digest(name),desired)];
 		const deletes=old.name!==name && oldRegistry?.user_id===ctx.user.id ? [remove('names',digest(old.name))] : [];
@@ -250,16 +246,15 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 	}); }
 
 	async function sessionList(token) {
-		const ctx=await required(token); const rows=await read('SELECT * FROM sessions WHERE user_id=? AND created>? AND COALESCE(revoked,0)=0 AND COALESCE(generation,\'legacy\')=? ORDER BY created DESC LIMIT 100',ctx.user.id,Date.now()-365*86400000,ctx.policy.generation);
-		return [...rows].map((s)=>({id:s.id||`legacy_${digest(s.record_key)}`,device:s.device||'Starsza sesja',created:s.created,current:s.record_key===ctx.key}));
+		const ctx=await required(token); const rows=await read('SELECT record_key,id,device,created FROM sessions WHERE user_id=? AND created>? AND revoked=0 AND generation=? ORDER BY created DESC LIMIT 100',ctx.user.id,Date.now()-365*86400000,ctx.policy.generation);
+		return [...rows].map((s)=>({id:s.id,device:s.device,created:s.created,current:s.record_key===ctx.key}));
 	}
-	function revokeSession(token,id) { return retry(async()=>{
-		const ctx=await required(token); let selected;
-		if(/^legacy_[a-f0-9]{64}$/.test(id)) {
-			for(let page=1;!selected;page++) { const rows=await collections.sessions.where('user_id','eq',ctx.user.id).page(page,1000); selected=rows.find((r)=>!r.value.id && `legacy_${digest(r.key)}`===id); if(rows.length<1000) break; }
-		} else { safeId(id); const row=(await read('SELECT record_key FROM sessions WHERE user_id=? AND id=? LIMIT 1',ctx.user.id,id))[0]; if(row) selected={key:row.record_key,value:await collections.sessions.get(row.record_key)}; }
-		if(!selected?.value || selected.value.user_id!==ctx.user.id) throw new Problem(404,'Nie znaleziono sesji.');
-		await db.transaction({checks:[...ctx.checks,check('sessions',selected.key,selected.value)],puts:[put('sessions',selected.key,{...selected.value,revoked:true})]}); return selected.key===ctx.key;
+	function revokeSession(token,id) { safeId(id); return retry(async()=>{
+		const ctx=await required(token), row=(await read('SELECT record_key FROM sessions WHERE user_id=? AND id=? LIMIT 1',ctx.user.id,id))[0];
+		if(!row) throw new Problem(404,'Nie znaleziono sesji.');
+		const session=await collections.sessions.get(row.record_key);
+		if(!session || session.user_id!==ctx.user.id) throw new Problem(404,'Nie znaleziono sesji.');
+		await db.transaction({checks:[...ctx.checks,check('sessions',row.record_key,session)],puts:[put('sessions',row.record_key,{...session,revoked:true})]}); return row.record_key===ctx.key;
 	}); }
 	function revokeOthers(token) { return retry(async()=>{
 		const ctx=await required(token), generation=randomUUID();
@@ -283,7 +278,7 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		const checks=[check('admin_sessions',admin.key,admin.record)],puts=[];
 		if(kind==='user') {
 			if(!await collections.users.get(target)) throw new Problem(404,'Nie znaleziono konta.');
-			const old=await collections.accounts.get(target), value={...(old||policyDefault())}; checks.push(check('accounts',target,old));
+			const old=await collections.accounts.get(target); if(!old) throw new Problem(404,'Nie znaleziono konta.'); const value={...old}; checks.push(check('accounts',target,old));
 			if(action==='approve') { if(!value.request || value.request.code!==code) throw new Problem(400,'Potwierdź kod właściciela konta.'); value.approved=true; value.request=null; }
 			else if(action==='unverify') value.approved=false;
 			else if(action==='reject') { value.approved=false; value.request=null; }

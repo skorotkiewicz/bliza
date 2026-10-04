@@ -15,7 +15,7 @@ export async function GET({ params }) {
 	}
 	if (!image) error(404, 'Nie znaleziono zdjęcia.');
 	const type = image.headers.get('content-type');
-	if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(type))
+	if (type !== 'image/webp')
 		error(404, 'Nie znaleziono zdjęcia.');
 	return new Response(image.body, {
 		headers: {
