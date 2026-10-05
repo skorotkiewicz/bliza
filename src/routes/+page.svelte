@@ -399,7 +399,7 @@
 		</div>
 	</div>
 </header>
-<Shoutbox open={shoutboxOpen} user={data.user} approvalRequired={data.approvalRequired} onclose={toggleShoutbox} onreport={openReport} />
+<Shoutbox open={shoutboxOpen} user={data.user} approvalRequired={data.approvalRequired} onclose={toggleShoutbox} />
 
 <div class="container breadcrumb">
 	<span>Jesteś u siebie</span><Icon name="chevron" size={12} /><span

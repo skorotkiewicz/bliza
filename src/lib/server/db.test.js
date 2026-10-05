@@ -1,5 +1,5 @@
 import { test, expect, spyOn } from 'bun:test';
-import { db } from 'openrails';
+import { db, data } from 'openrails';
 import { randomUUID, randomBytes } from 'node:crypto';
 import sharp from 'sharp';
 import https from 'node:https';
@@ -234,10 +234,15 @@ test.skipIf(!process.env.OPENRAILS_TOKEN)('20-message RAM chat validates, dedupl
 		const id=randomUUID();await Promise.all([first.sendShout(sender.token,' Cześć! ',id),second.sendShout(sender.token,'Cześć!',id)]);
 		const chat=await second.shoutbox(reader.token);expect(chat.items).toHaveLength(1);expect(chat.items[0].body).toBe('Cześć!');expect(chat.items[0].approved).toBe(1);
 		await expect(second.sendShout(sender.token,'Inna wiadomość',id)).rejects.toThrow('zajęty');
-		await first.report(reader.token,'shout',id,'Proszę sprawdzić tę wiadomość.');expect((await second.adminData('reports')).rows[0].kind).toBe('shout');
-		await second.moderate(admin,'shout',id,'hide','Sprawdzamy ukrywanie wiadomości.');expect((await first.shoutbox(reader.token)).items).toHaveLength(0);
+		await expect(first.report(reader.token,'shout',id,'Proszę sprawdzić tę wiadomość.')).rejects.toThrow('Niepoprawny typ');expect((await second.adminData('reports')).rows).toHaveLength(0);
+		const sql=data.runSQL.bind(data);
+		const hiding=spyOn(data,'runSQL').mockImplementation(async(query,...args)=>{
+			const rows=await sql(query,...args);
+			if(query.includes('u.id IN (SELECT value FROM json_each(?))'))await second.moderate(admin,'shout',id,'hide','Sprawdzamy ukrywanie podczas odświeżania.');
+			return rows;
+		});
+		try { expect((await first.shoutbox(reader.token)).items).toHaveLength(0); } finally { hiding.mockRestore(); }
 		expect((await first.adminData('shouts',1,id)).rows[0].hidden).toBe(true);
-		await expect(first.report(reader.token,'shout',id,'Już ukryta treść')).rejects.toThrow('Nie znaleziono');
 		await first.moderate(admin,'shout',id,'restore','Przywracamy wiadomość.');expect((await second.shoutbox(reader.token)).items).toHaveLength(1);
 		await first.moderate(admin,'user',sender.user.id,'ban','Zablokowane konto w czacie.');expect((await second.shoutbox(reader.token)).items).toHaveLength(0);
 		await expect(first.shoutbox(sender.token)).rejects.toThrow('Sesja');await expect(first.sendShout(sender.token,'Nie wolno',randomUUID())).rejects.toThrow('Sesja');

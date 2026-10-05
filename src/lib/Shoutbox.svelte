@@ -4,7 +4,7 @@
 	import Avatar from '#lib/Avatar.svelte';
 	import { profilePath } from '#lib/urls.js';
 
-	let { open, user, approvalRequired, onclose, onreport } = $props();
+	let { open, user, approvalRequired, onclose } = $props();
 	let items = $state([]), draft = $state(''), sending = $state(false), error = $state('');
 	let connection = $state('connecting'), canWrite = $state(false), log = $state(null);
 	let stream, nonce, previousBody = '', identity, forceScroll = false;
@@ -75,7 +75,6 @@
 				<div class="shout-message" id={`shout-${item.id}`}>
 					<Avatar name={item.name} size={28} />
 					<div class="shout-content"><div class="shout-meta"><a href={profilePath(item)}>{item.name}</a>{#if item.approved}<span class="approved-badge" role="img" aria-label="Konto zatwierdzone przez moderatora"><Icon name="check" size={12} /></span>{/if}<time datetime={new Date(item.created).toISOString()} title={new Date(item.created).toLocaleString('pl-PL')}>{time(item.created)}</time></div><p>{item.body}</p></div>
-					<button class="report-button" aria-label={`Zgłoś wiadomość ${item.name}`} onclick={() => onreport('shout', item.id)}><Icon name="flag" size={14} /></button>
 				</div>
 			{:else}<p class="shoutbox-empty">{connection === 'live' ? 'Jeszcze cisza. Powiedz cześć i zacznij rozmowę. :)' : 'Tu za chwilę pojawią się wiadomości sąsiadów.'}</p>{/each}
 		</div>

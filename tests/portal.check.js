@@ -889,10 +889,9 @@ try {
 	await chatPeer.unroute('**/shoutbox');await chatPeer.getByRole('button',{name:'Wyślij wiadomość',exact:true}).click();await chatPeer.waitForFunction(()=>document.getElementById('shoutbox-input').value==='');
 	await chatPage.locator('.shout-content p').getByText(retryMessage,{exact:true}).waitFor();assert.equal(await chatPage.locator('.shout-content p').getByText(retryMessage,{exact:true}).count(),1,'Retrying a committed send cannot duplicate it');
 	const chatMessage=chatPage.locator('.shout-message').filter({hasText:'Cześć! Widzę Cię bez odświeżania strony.'});const chatMessageId=(await chatMessage.getAttribute('id')).slice('shout-'.length);
-	await chatMessage.hover();await chatMessage.getByRole('button',{name:`Zgłoś wiadomość ${optionalName}`}).click();
-	await chatPage.getByLabel('Dlaczego zgłaszasz tę treść?').fill('Sprawdzamy zgłaszanie wiadomości w czacie.');await chatPage.getByRole('button',{name:'Wyślij zgłoszenie',exact:true}).click();await chatPage.locator('dialog[open]').waitFor({state:'hidden'});
-	await moderator.goto(`${base}/admin?view=reports`);await moderator.locator('.admin-row').filter({hasText:'Sprawdzamy zgłaszanie wiadomości w czacie.'}).getByRole('link',{name:'Przejdź do zgłoszonej treści'}).click();
-	await moderator.waitForURL(`${base}/admin?view=shouts&target=${chatMessageId}`);const chatModerationRow=moderator.locator(`.admin-row[data-id="${chatMessageId}"]`);
+	assert.equal(await chatPage.locator('.shoutbox-log .report-button').count(),0,'Shoutbox messages do not offer reports');
+	assert.equal((await context.request.post(`${base}/?/report`,{headers,form:{kind:'shout',id:chatMessageId,reason:'Próba zgłoszenia wiadomości czatu.'}})).status(),400,'Direct chat-report requests are rejected too');
+	await moderator.goto(`${base}/admin?view=shouts&target=${chatMessageId}`);const chatModerationRow=moderator.locator(`.admin-row[data-id="${chatMessageId}"]`);
 	await chatModerationRow.getByLabel('Działanie').selectOption('hide');await chatModerationRow.getByLabel('Powód działania').fill('Ukrycie wiadomości w aktywnym strumieniu.');await chatModerationRow.getByRole('button',{name:'Zapisz działanie'}).click();
 	await chatMessage.waitFor({state:'hidden'});assert.equal(await chatPeer.locator(`#shout-${chatMessageId}`).count(),0,'Moderation disappears from every open chat without a reload');
 	await chatModerationRow.getByLabel('Działanie').selectOption('restore');await chatModerationRow.getByLabel('Powód działania').fill('Przywrócenie wiadomości w aktywnym strumieniu.');await chatModerationRow.getByRole('button',{name:'Zapisz działanie'}).click();await chatMessage.waitFor();

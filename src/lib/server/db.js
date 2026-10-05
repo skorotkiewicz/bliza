@@ -273,7 +273,7 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		return notificationHref(row);
 	}); }
 	async function shoutRows(includeHidden=false) {
-		const messages=room.messages.map((message)=>({...message}));
+		const messages=[...room.messages];
 		if(!messages.length)return [];
 		const authors=await read('SELECT u.id,u.name,a.approved,a.banned FROM users u JOIN accounts a ON a.id=u.id WHERE u.id IN (SELECT value FROM json_each(?))',JSON.stringify([...new Set(messages.map((message)=>message.user_id))]));
 		const users=new Map(authors.map((author)=>[author.id,author]));
@@ -347,8 +347,8 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		await db.transaction({checks:[...ctx.checks,quota.check],puts:[put('accounts',ctx.user.id,{...ctx.policy,request:{note,code:randomBytes(4).toString('hex'),created:Date.now()}}),quota.put]});
 	}); }
 	function report(token,kind,target,reason) { return retry(async()=>{
-		const ctx=await required(token); safeId(target); if(kind!=='shout' && !Object.hasOwn(contentTables,kind)) throw new Problem(400,'Niepoprawny typ zgłoszenia.');
-		if(kind==='shout' ? !(await shoutRows()).some((message)=>message.id===target) : !(await read(`SELECT id FROM ${contentTables[kind]} WHERE id=?`,target)).length) throw new Problem(404,'Nie znaleziono treści.');
+		const ctx=await required(token); safeId(target); if(!Object.hasOwn(contentTables,kind)) throw new Problem(400,'Niepoprawny typ zgłoszenia.');
+		if(!(await read(`SELECT id FROM ${contentTables[kind]} WHERE id=?`,target)).length) throw new Problem(404,'Nie znaleziono treści.');
 		const quota=await slot(`report:${ctx.user.id}`,10,3600000);
 		await db.transaction({checks:[...ctx.checks,quota.check],puts:[put('reports',randomUUID(),{kind,target,user_id:ctx.user.id,reason,created:Date.now(),resolved:false}),quota.put]});
 	}); }

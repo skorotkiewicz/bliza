@@ -41,7 +41,7 @@ Add a photo by choosing a file, pasting or dropping it into the blip textarea, o
 
 Mention a current nickname with `@nick` in a post or answer. The bell opens that conversation and marks the notification read; visible pages refresh it every 30 seconds. A post can mention up to 20 nicknames.
 
-The header's Shoutbox opens a live chat with a rolling buffer of the latest 20 messages in app-server RAM. Chat messages are not written to OpenRails and vanish on restart. Existing stored chats are left untouched but are no longer loaded. Accounts, bans, flood limits and moderation records still use OpenRails. Messages allow 500 characters and 20 sends per minute per account; reports and hide/restore work only while a message remains in the buffer. Same-origin SSE refreshes the room every second while open. **Vercel and multiple app instances have separate rooms, not a shared chat.** Use a single always-on app instance for a common room.
+The header's Shoutbox opens a live chat with a rolling buffer of the latest 20 messages in app-server RAM. Chat messages are not written to OpenRails and vanish on restart.
 
 Post links use `/pytanie/<id>/<slug>` or `/wpis/<id>/<slug>`. Profiles use `/ludzie/<nick>` and pagination adds `/strona/2`.
 

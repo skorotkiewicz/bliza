@@ -1802,10 +1802,6 @@
 	.shoutbox-help { display: flex; justify-content: space-between; gap: var(--s3); flex-shrink: 0; }
 	.shoutbox-help > span:last-child { white-space: nowrap; }
 	.shoutbox-error { color: var(--error); font-size: 11px; flex-shrink: 0; }
-	@media (hover: hover) and (pointer: fine) {
-		.shout-message .report-button { opacity: 0; transition: opacity 120ms; }
-		.shout-message:hover .report-button, .shout-message:focus-within .report-button { opacity: 1; }
-	}
 
 
 	.verification-notice { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); padding: var(--s3) var(--s4); margin-bottom: var(--s4); background: var(--hello-paper); border: 1px solid var(--hello-line); border-radius: 4px; font-size: 11px; }
