@@ -219,7 +219,7 @@ test.skipIf(!process.env.OPENRAILS_TOKEN)('mention notifications are atomic, pri
 });
 
 
-test.skipIf(!process.env.OPENRAILS_TOKEN)('shared chat validates, deduplicates, throttles and respects moderation and sessions', async () => {
+test.skipIf(!process.env.OPENRAILS_TOKEN)('20-message RAM chat validates, deduplicates, throttles and respects moderation and sessions', async () => {
 	const previous=process.env.REQUIRE_APPROVAL;process.env.REQUIRE_APPROVAL='true';
 	try {
 		const namespace=`bliza_chat_${randomUUID().replaceAll('-','')}`,first=openStore(namespace),second=openStore(namespace);
@@ -236,7 +236,7 @@ test.skipIf(!process.env.OPENRAILS_TOKEN)('shared chat validates, deduplicates, 
 		await expect(second.sendShout(sender.token,'Inna wiadomość',id)).rejects.toThrow('zajęty');
 		await first.report(reader.token,'shout',id,'Proszę sprawdzić tę wiadomość.');expect((await second.adminData('reports')).rows[0].kind).toBe('shout');
 		await second.moderate(admin,'shout',id,'hide','Sprawdzamy ukrywanie wiadomości.');expect((await first.shoutbox(reader.token)).items).toHaveLength(0);
-		expect((await first.adminData('shouts',1,id)).rows[0].hidden).toBe(1);
+		expect((await first.adminData('shouts',1,id)).rows[0].hidden).toBe(true);
 		await expect(first.report(reader.token,'shout',id,'Już ukryta treść')).rejects.toThrow('Nie znaleziono');
 		await first.moderate(admin,'shout',id,'restore','Przywracamy wiadomość.');expect((await second.shoutbox(reader.token)).items).toHaveLength(1);
 		await first.moderate(admin,'user',sender.user.id,'ban','Zablokowane konto w czacie.');expect((await second.shoutbox(reader.token)).items).toHaveLength(0);
@@ -245,8 +245,14 @@ test.skipIf(!process.env.OPENRAILS_TOKEN)('shared chat validates, deduplicates, 
 		for(let i=0;i<20;i++)await (i%2?first:second).sendShout(reader.token,`Wiadomość ${i}`,randomUUID());
 		await expect(first.sendShout(reader.token,'Limit',randomUUID())).rejects.toThrow('Za dużo');expect((await second.shoutbox(reader.token)).items).toHaveLength(20);
 		expect((await first.collections.accounts.get(reader.user.id)).approved).toBe(false);
-		await db.transaction({puts:Array.from({length:51},(_,index)=>first.put('shouts',randomUUID(),{user_id:reader.user.id,body:'Historia rozmowy.',created:Date.now()-(index+1)*1000}))});
-		const recent=(await second.shoutbox(reader.token)).items;expect(recent).toHaveLength(50);expect(recent.every((item,index)=>!index || item.created>=recent[index-1].created)).toBe(true);
+		const neighbour=await second.visitor();
+		for(let i=0;i<3;i++)await first.sendShout(neighbour.token,`Nowa wiadomość ${i}`,randomUUID());
+		const recent=(await second.shoutbox(reader.token)).items;expect(recent).toHaveLength(20);expect(recent[0].body).toBe('Wiadomość 3');expect(recent.at(-1).body).toBe('Nowa wiadomość 2');
+		expect(await db.collection(`${namespace}_shouts`).query().count()).toBe(0);
+		expect((await second.adminData('shouts',1,id)).rows).toHaveLength(0);
+		await expect(first.moderate(admin,'shout',id,'hide','Wiadomość już wypadła z bufora.')).rejects.toThrow('zniknęła');
+		const restarted=Bun.spawn([process.execPath,'--no-env-file','--eval',"const {openStore}=await import('./src/lib/server/db.js');const chat=await openStore(process.env.CHAT_TEST_NAMESPACE).shoutbox(process.env.CHAT_TEST_SESSION);if(chat.items.length)throw new Error('A new process must start with an empty room');"],{env:{...process.env,CHAT_TEST_NAMESPACE:namespace,CHAT_TEST_SESSION:reader.token},stdout:'ignore',stderr:'pipe'});
+		expect(await restarted.exited).toBe(0);
 		const remote=await second.recoverTicket(await first.issueTicket(reader.token));await first.revokeOthers(reader.token);
 		await expect(second.shoutbox(remote.token)).rejects.toThrow('Sesja');await expect(first.shoutbox('bad')).rejects.toThrow('Sesja');
 	} finally { if(previous===undefined)delete process.env.REQUIRE_APPROVAL;else process.env.REQUIRE_APPROVAL=previous; }

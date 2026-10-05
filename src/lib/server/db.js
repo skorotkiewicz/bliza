@@ -8,13 +8,16 @@ export const approvalRequired = () => process.env.REQUIRE_APPROVAL !== 'false';
 export const digest = (value) => createHash('sha256').update(value).digest('hex');
 export class Problem extends Error { constructor(status, message) { super(message); this.status = status; } }
 export const mentionNames = (text) => [...new Set([...text.matchAll(/(?<![\p{L}\p{N}_.@])@([\p{L}\p{N}_.]{3,24})(?![\p{L}\p{N}_.])/gu)].map((match) => match[1]))];
+const shoutRooms = new Map();
 const safeId=(value)=>{ if(typeof value!=='string' || !/^(?:[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}|(?:seed-)?[0-9]{1,12})$/.test(value)) throw new Problem(400,'Niepoprawny identyfikator.'); };
 
 export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza') {
 	if (!/^[a-z][a-z0-9_]{0,50}$/.test(namespace)) throw new Error('Invalid OpenRails namespace');
+	// ponytail: process-local rooms, not shared by Vercel instances; use a shared chat server if that becomes necessary.
+	if(!shoutRooms.has(namespace))shoutRooms.set(namespace,{messages:[],writing:Promise.resolve()});
+	const room=shoutRooms.get(namespace);
 	const fields = {
 		notifications: ['user_id','actor_id','post_id','reply_id','created','read'],
-		shouts_raw: ['user_id','body','created'],
 		users: ['name','avatar'], sessions: ['user_id','created','generation','revoked','id','device'],
 		posts_raw: ['user_id','kind','title','body','category','image','created','tags'],
 		replies_raw: ['post_id','user_id','body','created'], likes: ['user_id','post_id'], bookmarks: ['user_id','post_id'], follows: ['user_id','target_id'],
@@ -25,8 +28,7 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 	const views = Object.entries(fields).map(([table, columns]) => `${table} AS (SELECT key AS ${table === 'sessions' ? 'record_key' : 'id'}, ${columns.map((n) => `json_extract(value, '$.${n}') AS ${n}`).join(', ')} FROM kv WHERE scope='' AND collection='${namespace}_${table.replace('_raw','')}')`);
 	views.push("posts AS (SELECT p.* FROM posts_raw p WHERE NOT EXISTS (SELECT 1 FROM moderation m WHERE m.kind='post' AND m.target=p.id AND m.hidden=1) AND NOT EXISTS (SELECT 1 FROM accounts a WHERE a.id=p.user_id AND a.banned=1))");
 	views.push("replies AS (SELECT r.* FROM replies_raw r JOIN posts p ON p.id=r.post_id WHERE NOT EXISTS (SELECT 1 FROM moderation m WHERE m.kind='reply' AND m.target=r.id AND m.hidden=1) AND NOT EXISTS (SELECT 1 FROM accounts a WHERE a.id=r.user_id AND a.banned=1))");
-	views.push("shouts AS (SELECT s.* FROM shouts_raw s WHERE NOT EXISTS (SELECT 1 FROM moderation m WHERE m.kind='shout' AND m.target=s.id AND m.hidden=1) AND NOT EXISTS (SELECT 1 FROM accounts a WHERE a.id=s.user_id AND a.banned=1))");
-	const contentTables = {post:'posts',reply:'replies',shout:'shouts'};
+	const contentTables = {post:'posts',reply:'replies'};
 	views.push('tags AS (SELECT p.id AS post_id, t.value AS tag FROM posts p, json_each(p.tags) t)');
 	const read = (sql,...params) => data.runSQL(`WITH ${views.join(', ')} ${sql}`,params);
 	const check = (table,key,value) => ({ collection:`${namespace}_${table}`, key:String(key), exists:value !== null, ...(value !== null ? { value } : {}) });
@@ -270,25 +272,36 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		if (!old.read) await db.transaction({checks: [...ctx.checks, check('notifications',id,old)], puts: [put('notifications',id,{...old,read:true})]});
 		return notificationHref(row);
 	}); }
+	async function shoutRows(includeHidden=false) {
+		const messages=room.messages.map((message)=>({...message}));
+		if(!messages.length)return [];
+		const authors=await read('SELECT u.id,u.name,a.approved,a.banned FROM users u JOIN accounts a ON a.id=u.id WHERE u.id IN (SELECT value FROM json_each(?))',JSON.stringify([...new Set(messages.map((message)=>message.user_id))]));
+		const users=new Map(authors.map((author)=>[author.id,author]));
+		return messages.filter((message)=>users.has(message.user_id) && (includeHidden || (!message.hidden && !users.get(message.user_id).banned)))
+			.map((message)=>({...message,name:users.get(message.user_id).name,approved:users.get(message.user_id).approved}));
+	}
 	async function shoutbox(token) {
 		const ctx=await required(token);
-		// ponytail: show the latest 50 messages; add history pagination if the room needs an archive.
-		const rows=await read('SELECT s.*,u.name,(SELECT approved FROM accounts WHERE id=u.id) AS approved FROM shouts s JOIN users u ON u.id=s.user_id ORDER BY s.created DESC,s.id DESC LIMIT 50');
-		return {userId:ctx.user.id,canWrite:!approvalRequired() || Boolean(ctx.policy.approved),items:[...rows].reverse()};
+		return {userId:ctx.user.id,canWrite:!approvalRequired() || Boolean(ctx.policy.approved),items:await shoutRows()};
 	}
 	function sendShout(token,body,id) {
 		if(typeof body!=='string' || !body.trim() || body.trim().length>500)throw new Problem(400,'Wiadomość musi mieć od 1 do 500 znaków.');
 		body=body.trim();safeId(id);
-		return retry(async()=>{
-			const ctx=await required(token,true),existing=await collections.shouts.get(id);
+		// Serialize async quota checks so identical retries cannot spend two slots or append twice.
+		const pending=room.writing.then(()=>retry(async()=>{
+			const ctx=await required(token,true),existing=room.messages.find((message)=>message.id===id);
 			if(existing) {
 				if(existing.user_id===ctx.user.id && existing.body===body)return id;
 				throw new Problem(409,'Ten identyfikator wiadomości jest już zajęty.');
 			}
 			const quota=await slot(`shout:${ctx.user.id}`,20);
-			await db.transaction({checks:[...ctx.checks,check('shouts',id,null),quota.check],puts:[put('shouts',id,{user_id:ctx.user.id,body,created:Date.now()}),quota.put]});
+			await db.transaction({checks:[...ctx.checks,quota.check],puts:[quota.put]});
+			// ponytail: retry deduplication covers the retained 20 messages; add a nonce cache if late retries matter.
+			room.messages.push({id,user_id:ctx.user.id,body,created:Date.now(),hidden:false});
+			if(room.messages.length>20)room.messages.shift();
 			return id;
-		});
+		}));
+		room.writing=pending.catch(()=>{});return pending;
 	}
 	function addPost(token,kind,title,body,category,attachment=null,created=Date.now(),id=randomUUID()) { return retry(async()=>{
 		const ctx=await required(token,true); id=String(id); safeId(id);
@@ -334,8 +347,8 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		await db.transaction({checks:[...ctx.checks,quota.check],puts:[put('accounts',ctx.user.id,{...ctx.policy,request:{note,code:randomBytes(4).toString('hex'),created:Date.now()}}),quota.put]});
 	}); }
 	function report(token,kind,target,reason) { return retry(async()=>{
-		const ctx=await required(token); safeId(target); if(!Object.hasOwn(contentTables,kind)) throw new Problem(400,'Niepoprawny typ zgłoszenia.');
-		if(!(await read(`SELECT id FROM ${contentTables[kind]} WHERE id=?`,target)).length) throw new Problem(404,'Nie znaleziono treści.');
+		const ctx=await required(token); safeId(target); if(kind!=='shout' && !Object.hasOwn(contentTables,kind)) throw new Problem(400,'Niepoprawny typ zgłoszenia.');
+		if(kind==='shout' ? !(await shoutRows()).some((message)=>message.id===target) : !(await read(`SELECT id FROM ${contentTables[kind]} WHERE id=?`,target)).length) throw new Problem(404,'Nie znaleziono treści.');
 		const quota=await slot(`report:${ctx.user.id}`,10,3600000);
 		await db.transaction({checks:[...ctx.checks,quota.check],puts:[put('reports',randomUUID(),{kind,target,user_id:ctx.user.id,reason,created:Date.now(),resolved:false}),quota.put]});
 	}); }
@@ -343,7 +356,7 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		safeId(target);
 		const currentAdmin=await collections.admin_sessions.get(admin.key);
 		if(!currentAdmin || currentAdmin.revoked || currentAdmin.expires<=Date.now()) throw new Problem(401,'Sesja administratora wygasła.');
-		const checks=[check('admin_sessions',admin.key,admin.record)],puts=[];
+		const checks=[check('admin_sessions',admin.key,admin.record)],puts=[];let shout;
 		if(kind==='user') {
 			if(!await collections.users.get(target)) throw new Problem(404,'Nie znaleziono konta.');
 			const old=await collections.accounts.get(target); if(!old) throw new Problem(404,'Nie znaleziono konta.'); const value={...old}; checks.push(check('accounts',target,old));
@@ -356,23 +369,25 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 			puts.push(put('accounts',target,{...value,reason,updated:Date.now()}));
 		} else if(kind==='report' && action==='resolve') {
 			const old=await collections.reports.get(target); if(!old) throw new Problem(404,'Nie znaleziono zgłoszenia.'); checks.push(check('reports',target,old)); puts.push(put('reports',target,{...old,resolved:true}));
+		} else if(kind==='shout' && ['hide','restore'].includes(action)) {
+			shout=room.messages.find((message)=>message.id===target);if(!shout)throw new Problem(404,'Ta wiadomość już zniknęła z czatu.');
 		} else if(Object.hasOwn(contentTables,kind) && ['hide','restore'].includes(action)) {
 			if(!await collections[contentTables[kind]].get(target)) throw new Problem(404,'Nie znaleziono treści.');
 			const key=`${kind}/${target}`,old=await collections.moderation.get(key); checks.push(check('moderation',key,old)); puts.push(put('moderation',key,{kind,target,hidden:action==='hide',reason,created:Date.now()}));
 		} else throw new Problem(400,'Niepoprawne działanie.');
-		puts.push(put('audit',randomUUID(),{action,kind,target,reason,created:Date.now(),actor:admin.record.id})); await db.transaction({checks,puts});
+		puts.push(put('audit',randomUUID(),{action,kind,target,reason,created:Date.now(),actor:admin.record.id})); await db.transaction({checks,puts});if(shout)shout.hidden=action==='hide';
 	}); }
 	async function adminData(view='reports',page=1,target='') {
+		if(view==='shouts')return {view,page:1,target,rows:(await shoutRows(true)).reverse().filter((message)=>!target || message.id===target)};
 		const queries={
 			reports:'SELECT r.*,u.name FROM reports r LEFT JOIN users u ON u.id=r.user_id ORDER BY resolved,created DESC',
 			users:'SELECT u.*,a.approved,a.banned,a.request FROM users u LEFT JOIN accounts a ON a.id=u.id ORDER BY a.request IS NOT NULL DESC,u.name',
 			posts:"SELECT p.*,u.name,COALESCE(m.hidden,0) AS hidden FROM posts_raw p JOIN users u ON u.id=p.user_id LEFT JOIN moderation m ON m.kind='post' AND m.target=p.id ORDER BY p.created DESC",
 			replies:"SELECT r.*,u.name,COALESCE(m.hidden,0) AS hidden FROM replies_raw r JOIN users u ON u.id=r.user_id LEFT JOIN moderation m ON m.kind='reply' AND m.target=r.id ORDER BY r.created DESC",
-			shouts:"SELECT s.*,u.name,COALESCE(m.hidden,0) AS hidden FROM shouts_raw s JOIN users u ON u.id=s.user_id LEFT JOIN moderation m ON m.kind='shout' AND m.target=s.id ORDER BY s.created DESC,s.id DESC",
 			audit:'SELECT * FROM audit ORDER BY created DESC'
 		};
 		if(!queries[view]) view='reports'; page=Math.max(1,Math.min(10000,Math.floor(Number(page)||1)));
-		const alias={users:'u.id',posts:'p.id',replies:'r.id',shouts:'s.id',reports:'r.id',audit:'id'}[view];
+		const alias={users:'u.id',posts:'p.id',replies:'r.id',reports:'r.id',audit:'id'}[view];
 		const sql=target ? queries[view].replace(' ORDER BY',` WHERE ${alias}=? ORDER BY`) : queries[view];
 		const rows=await read(`${sql} LIMIT 100 OFFSET ?`,...(target?[target]:[]),(page-1)*100);
 		return {view,page,target,rows:[...rows].map((r)=>({...r,...(r.request ? {request:JSON.parse(r.request)} : {})}))};

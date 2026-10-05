@@ -25,7 +25,7 @@ export async function GET({ cookies }) {
 				previous = next;
 			};
 			controller.enqueue(encoder.encode('retry: 1000\n\n')); send(initial);
-			// ponytail: one storage poll/second per open viewer; upgrade to backend pub/sub when concurrency warrants it.
+			// ponytail: one room snapshot/second per open viewer; push room events if concurrency warrants it.
 			const poll = async () => {
 				try {
 					const snapshot = await store.shoutbox(token);
