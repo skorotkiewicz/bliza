@@ -1785,18 +1785,18 @@
 	.shoutbox-heading { display: flex; gap: var(--s3); align-items: center; flex-shrink: 0; }
 	.shoutbox-heading > div { flex: 1; min-width: 0; }
 	.shoutbox-heading h2 { font-size: 14px; }
-	.shoutbox-heading h2 > span { font-size: 12px; font-weight: normal; color: var(--ink-soft); }
+	.shoutbox-channel { margin-left: var(--s2); font-family: 'Courier New', monospace; font-size: 12px; color: var(--link); }
 	.shoutbox-heading p, .shoutbox-help { font-size: 10px; color: var(--ink-caption); }
 	.shoutbox-reconnect { min-height: 44px; color: var(--link); font-size: 11px; }
-	.shoutbox-log { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; border-block: 1px solid var(--line-faint); }
-	.shout-message { display: flex; gap: var(--s3); align-items: flex-start; padding-block: var(--s2); border-bottom: 1px solid var(--line-faint); }
-	.shout-content { flex: 1; min-width: 0; }
-	.shout-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s1); }
-	.shout-meta a { font-size: 12px; font-weight: bold; overflow-wrap: anywhere; }
-	.shout-meta time { margin-left: var(--s2); color: var(--ink-caption); font-size: 10px; font-variant-numeric: tabular-nums; }
-	.shout-content p { font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
-	.shoutbox-empty { padding: var(--s6); color: var(--ink-caption); font-size: 12px; }
-	.shoutbox-form { display: flex; gap: var(--s2); flex-shrink: 0; }
+	.shoutbox-log { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; border-block: 1px solid var(--line-faint); display: flex; flex-direction: column; font: 13px/1.5 'Courier New', monospace; }
+	.shoutbox-lines { margin-top: auto; flex-shrink: 0; padding-block: var(--s2); }
+	.shout-message { display: grid; grid-template-columns: 7ch minmax(0, 1fr); gap: var(--s2); align-items: baseline; padding-block: var(--s1); }
+	.shout-message > time { color: var(--ink-caption); white-space: nowrap; font-variant-numeric: tabular-nums; }
+	.shout-line { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+	.shout-nick { color: var(--link); font-weight: bold; }
+	.shoutbox-empty { padding: var(--s2); color: var(--ink-caption); font-size: 12px; }
+	.shoutbox-form { display: flex; gap: var(--s2); flex-shrink: 0; font-family: 'Courier New', monospace; }
+	.shoutbox-form::before { content: '>'; align-self: center; color: var(--link); font-weight: bold; }
 	.shoutbox-form input { flex: 1; min-width: 0; min-height: 44px; font-size: 13px; }
 	.shoutbox-form button { min-width: 44px; min-height: 44px; }
 	.shoutbox-help { display: flex; justify-content: space-between; gap: var(--s3); flex-shrink: 0; }
@@ -2340,7 +2340,6 @@
 		.nav-inner { flex-wrap: wrap; }
 		.nav-inner nav { flex: 0 0 100%; }
 		.shoutbox-toggle { width: 100%; min-height: 44px; border-top: 1px solid var(--line-faint); }
-		.shoutbox-heading h2 > span { display: none; }
 	}
 
 }
