@@ -859,6 +859,7 @@ try {
 	await chatPage.goto(base);await chatPeer.goto(base);
 	for(const tab of [chatPage,chatPeer]) {await tab.getByRole('button',{name:'Shoutbox',exact:true}).click();await tab.locator('#shoutbox').getByRole('status').filter({hasText:'Na żywo.'}).waitFor();}
 	await chatPage.getByLabel('Wiadomość do shoutboxa').fill('Cześć sąsiedzie, jesteśmy na żywo.');await chatPage.getByRole('button',{name:'Wyślij wiadomość',exact:true}).click();
+	await chatPage.waitForFunction(()=>{const input=document.getElementById('shoutbox-input');return !input.readOnly && document.activeElement===input;});
 	await chatPeer.locator('.shout-text').getByText('Cześć sąsiedzie, jesteśmy na żywo.',{exact:true}).waitFor();
 	assert.equal(await chatPeer.locator('.shoutbox-log .avatar').count(),0,'IRC lines do not use avatar cards');
 	assert.match(await chatPeer.locator('.shout-message time').first().innerText(),/^\[\d{2}:\d{2}\]$/,'Chat lines begin with bracketed timestamps');
@@ -879,6 +880,7 @@ try {
 	await chatPeer.getByRole('button',{name:'Shoutbox',exact:true}).click();assert.equal(await chatPeer.getByLabel('Wiadomość do shoutboxa').inputValue(),'Ten szkic zostaje po schowaniu czatu.','Closing the panel keeps unsent text');
 	await chatPeer.getByLabel('Wiadomość do shoutboxa').fill('Cześć! Widzę Cię bez odświeżania strony.');await chatPeer.getByLabel('Wiadomość do shoutboxa').press('Enter');
 	await chatPage.locator('.shout-text').getByText('Cześć! Widzę Cię bez odświeżania strony.',{exact:true}).waitFor();
+	assert(await chatPeer.getByLabel('Wiadomość do shoutboxa').evaluate((node)=>node===document.activeElement),'Enter sends without losing input focus');
 	assert.equal((await optionalContext.request.post(`${optionalBase}/shoutbox`,{headers,form:{id:randomUUID(),body:'Wiadomość z drugiego procesu aplikacji.'}})).status(),200);
 	assert.equal(await chatPage.locator('.shout-text').getByText('Wiadomość z drugiego procesu aplikacji.',{exact:true}).count(),0,'Separate app processes have separate RAM rooms');
 	const escapedMessage='<img src=x onerror="window.chatInjected=true">';assert.equal((await optionalContext.request.post(`${base}/shoutbox`,{headers,form:{id:randomUUID(),body:escapedMessage}})).status(),200);
@@ -903,6 +905,7 @@ try {
 	await chatPeer.route('**/shoutbox',async(route)=>{if(route.request().method()==='POST'){assert.equal((await route.fetch()).status(),200);await route.abort();}else await route.continue();});
 	await chatPeer.getByLabel('Wiadomość do shoutboxa').fill(retryMessage);await chatPeer.getByRole('button',{name:'Wyślij wiadomość',exact:true}).click();
 	await chatPeer.locator('.shoutbox-error').waitFor();assert.equal(await chatPeer.getByLabel('Wiadomość do shoutboxa').inputValue(),retryMessage,'An uncertain send retains its draft');
+	await chatPeer.waitForFunction(()=>{const input=document.getElementById('shoutbox-input');return !input.readOnly && document.activeElement===input;});
 	await chatPeer.unroute('**/shoutbox');await chatPeer.getByRole('button',{name:'Wyślij wiadomość',exact:true}).click();await chatPeer.waitForFunction(()=>document.getElementById('shoutbox-input').value==='');
 	await chatPage.locator('.shout-text').getByText(retryMessage,{exact:true}).waitFor();assert.equal(await chatPage.locator('.shout-text').getByText(retryMessage,{exact:true}).count(),1,'Retrying a committed send cannot duplicate it');
 	const chatMessage=chatPage.locator('.shout-message').filter({hasText:'Cześć! Widzę Cię bez odświeżania strony.'});const chatMessageId=(await chatMessage.getAttribute('id')).slice('shout-'.length);
@@ -913,7 +916,9 @@ try {
 	await chatMessage.waitFor({state:'hidden'});await chatPeer.locator(`#shout-${chatMessageId}`).waitFor({state:'detached'});assert.equal(await chatPeer.locator(`#shout-${chatMessageId}`).count(),0,'Moderation disappears from every open chat without a reload');
 	await chatModerationRow.getByLabel('Działanie').selectOption('restore');await chatModerationRow.getByLabel('Powód działania').fill('Przywrócenie wiadomości w aktywnym strumieniu.');await chatModerationRow.getByRole('button',{name:'Zapisz działanie'}).click();await chatMessage.waitFor();
 	for(const width of [1440,760,390,320]) {
-		await chatPage.setViewportSize({width,height:844});const box=await chatPage.locator('#shoutbox').boundingBox(),headerBox=await chatPage.locator('.site-header').boundingBox();
+		await chatPage.setViewportSize({width,height:844});
+		await chatPage.waitForFunction(()=>{const log=document.querySelector('.shoutbox-log');return log.scrollHeight-log.scrollTop-log.clientHeight<=1;});
+		const box=await chatPage.locator('#shoutbox').boundingBox(),headerBox=await chatPage.locator('.site-header').boundingBox();
 		assert.equal(box.width,width,'Shoutbox spans the full viewport');assert(Math.abs(box.height-844*0.4)<=2,'Shoutbox uses about 40% viewport height');assert(Math.abs(box.y-headerBox.y-headerBox.height)<=2,'The chat sits directly below the header');
 		assert.equal(await chatPage.evaluate(()=>document.documentElement.scrollWidth),width,'Chat and header stay within narrow screens');
 		if(width===1440 || width===320)await chatPage.screenshot({path:join(directory,`shoutbox-${width}.png`),animations:'disabled'});

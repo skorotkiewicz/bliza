@@ -6,17 +6,17 @@
 	let { open, user, approvalRequired, onclose } = $props();
 	let items = $state([]), draft = $state(''), sending = $state(false), error = $state('');
 	let connection = $state('connecting'), canWrite = $state(false), log = $state(null);
-	let stream, nonce, previousBody = '', identity, forceScroll = false;
+	let stream, nonce, previousBody = '', identity, forceScroll = false, following = true, logWidth = 0, logHeight = 0;
 	const time = (value) => new Date(value).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
 
 	function connect() {
-		stream?.close(); connection = 'connecting'; error = ''; forceScroll = true;
+		stream?.close(); connection = 'connecting'; error = ''; forceScroll = true; following = true;
 		const account = user.id, source = new EventSource('/shoutbox'); stream = source;
 		source.onmessage = async (event) => {
 			if (stream !== source || user.id !== account) return;
 			const next = JSON.parse(event.data);
 			if (next.userId !== account) return;
-			const follow = forceScroll || !items.length || (log && log.scrollHeight - log.scrollTop - log.clientHeight < 48);
+			const follow = forceScroll || !items.length || following;
 			items = next.items; canWrite = next.canWrite; connection = 'live'; forceScroll = false;
 			await tick(); if (follow && log) log.scrollTop = log.scrollHeight;
 		};
@@ -42,9 +42,18 @@
 			return () => { stream?.close(); stream = null; };
 		});
 	});
+	$effect(() => {
+		if (!log) return;
+		const node = log, observer = new ResizeObserver(() => {
+			if (following) node.scrollTop = node.scrollHeight;
+			logWidth = node.clientWidth; logHeight = node.clientHeight;
+		});
+		observer.observe(node);
+		return () => observer.disconnect();
+	});
 	async function send(event) {
 		event.preventDefault(); if (sending || !canWrite || !draft.trim()) return;
-		const account = user.id, message = draft.trim();
+		const account = user.id, message = draft.trim(), form = event.currentTarget;
 		if (message !== previousBody) { previousBody = message; nonce = crypto.randomUUID(); }
 		const id = nonce;
 		sending = true; error = '';
@@ -53,11 +62,16 @@
 			const result = await response.json();
 			if (user.id !== account) return;
 			if (!response.ok) { if (response.status === 401 || response.status === 403) canWrite = false; throw new Error(result.error); }
-			draft = ''; previousBody = ''; nonce = crypto.randomUUID(); forceScroll = true;
+			draft = ''; previousBody = ''; nonce = crypto.randomUUID(); forceScroll = true; following = true;
 			await tick(); if (log) log.scrollTop = log.scrollHeight;
 		} catch (failure) {
 			if (user.id === account) error = failure.name === 'Error' ? failure.message : 'Nie potwierdziliśmy zapisu. Spróbuj ponownie; wiadomość została w polu.';
-		} finally { if (user.id === account) sending = false; }
+		} finally {
+			if (user.id === account) {
+				sending = false; await tick();
+				if (open && user.id === account && (document.activeElement === document.body || form.contains(document.activeElement))) form.elements.body.focus({ preventScroll: true });
+			}
+		}
 	}
 </script>
 
@@ -70,7 +84,7 @@
 			<button class="dialog-close" aria-label="Zamknij shoutbox" onclick={onclose}><Icon name="close" size={18} /></button>
 		</header>
 		<!-- svelte-ignore a11y_no_noninteractive_tabindex (The scrollable chat log must be reachable by keyboard.) -->
-		<div class="shoutbox-log" role="log" aria-label="Wiadomości shoutboxa" aria-live="polite" aria-relevant="additions" tabindex="0" bind:this={log}>
+		<div class="shoutbox-log" role="log" aria-label="Wiadomości shoutboxa" aria-live="polite" aria-relevant="additions" tabindex="0" bind:this={log} onscroll={() => { if (log.clientWidth === logWidth && log.clientHeight === logHeight) following = log.scrollHeight - log.scrollTop - log.clientHeight < 48; }}>
 			<div class="shoutbox-lines">
 				{#each items as item (item.id)}
 					<div class="shout-message" id={`shout-${item.id}`}>
@@ -82,7 +96,7 @@
 		</div>
 		{#if error}<p class="shoutbox-error" role="alert">{error}</p>{/if}
 		<form class="shoutbox-form" onsubmit={send}>
-			<label class="sr-only" for="shoutbox-input">Wiadomość do shoutboxa</label><input id="shoutbox-input" name="body" bind:value={draft} maxlength="500" required autocomplete="off" placeholder="Wiadomość na #bliza…" disabled={sending || !canWrite} />
+			<label class="sr-only" for="shoutbox-input">Wiadomość do shoutboxa</label><input id="shoutbox-input" name="body" bind:value={draft} maxlength="500" required autocomplete="off" placeholder="Wiadomość na #bliza…" readonly={sending} disabled={!canWrite} />
 			<button class="publish-button" type="submit" aria-label="Wyślij wiadomość" disabled={sending || !canWrite || !draft.trim()}><Icon name="send" size={17} /></button>
 		</form>
 		<div class="shoutbox-help"><span>{!canWrite ? 'Przed pisaniem sprawdź sesję i zatwierdzenie konta w profilu.' : sending ? 'Wysyłamy…' : 'Enter wysyła. Bądźmy dla siebie dobrzy.'}</span><span>{draft.length}/500</span></div>
