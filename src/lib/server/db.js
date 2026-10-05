@@ -1,5 +1,6 @@
 import { db, data, ApiError } from 'openrails';
 import { randomBytes, randomUUID, createHash, timingSafeEqual } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { formatTicket, parseTicket } from './tickets.js';
 import { postPath } from '../urls.js';
 
@@ -14,8 +15,9 @@ const safeId=(value)=>{ if(typeof value!=='string' || !/^(?:[a-f0-9]{8}-[a-f0-9]
 export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza') {
 	if (!/^[a-z][a-z0-9_]{0,50}$/.test(namespace)) throw new Error('Invalid OpenRails namespace');
 	// ponytail: process-local rooms, not shared by Vercel instances; use a shared chat server if that becomes necessary.
-	if(!shoutRooms.has(namespace))shoutRooms.set(namespace,{messages:[],writing:Promise.resolve()});
+	if(!shoutRooms.has(namespace))shoutRooms.set(namespace,{messages:[],writing:Promise.resolve(),events:new EventEmitter().setMaxListeners(0)});
 	const room=shoutRooms.get(namespace);
+	function subscribeShouts(listener) { room.events.on('change',listener); return ()=>room.events.off('change',listener); }
 	const fields = {
 		notifications: ['user_id','actor_id','post_id','reply_id','created','read'],
 		users: ['name','avatar'], sessions: ['user_id','created','generation','revoked','id','device'],
@@ -211,6 +213,7 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		const puts=[put('tickets',ctx.user.id,{hash:digest(secret),created:Date.now()})];
 		if(old && replace) { const generation=randomUUID(); puts.push(put('accounts',ctx.user.id,{...ctx.policy,generation}),put('sessions',ctx.key,{...ctx.session,generation})); }
 		await db.transaction({checks:[...ctx.checks,check('tickets',ctx.user.id,old)],puts});
+		if(old && replace)room.events.emit('change');
 		return formatTicket(ctx.user,namespace,secret);
 	}); }
 	async function recoverTicket(text,device) {
@@ -230,7 +233,7 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		const checks=[...ctx.checks,check('users',ctx.user.id,old),check('names',digest(name),desired)];
 		const deletes=old.name!==name && oldRegistry?.user_id===ctx.user.id ? [remove('names',digest(old.name))] : [];
 		if(deletes.length) checks.push(check('names',digest(old.name),oldRegistry));
-		await db.transaction({checks,puts:[put('users',ctx.user.id,{...old,name}),put('names',digest(name),{user_id:ctx.user.id})],deletes}); return true;
+		await db.transaction({checks,puts:[put('users',ctx.user.id,{...old,name}),put('names',digest(name),{user_id:ctx.user.id})],deletes}); room.events.emit('change'); return true;
 	}); }
 	async function mentionMutations(actor, post, reply, text, created) {
 		const names = mentionNames(text);
@@ -299,6 +302,7 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 			// ponytail: retry deduplication covers the retained 20 messages; add a nonce cache if late retries matter.
 			room.messages.push({id,user_id:ctx.user.id,body,created:Date.now(),hidden:false});
 			if(room.messages.length>20)room.messages.shift();
+			room.events.emit('change');
 			return id;
 		}));
 		room.writing=pending.catch(()=>{});return pending;
@@ -335,11 +339,12 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		if(!row) throw new Problem(404,'Nie znaleziono sesji.');
 		const session=await collections.sessions.get(row.record_key);
 		if(!session || session.user_id!==ctx.user.id) throw new Problem(404,'Nie znaleziono sesji.');
-		await db.transaction({checks:[...ctx.checks,check('sessions',row.record_key,session)],puts:[put('sessions',row.record_key,{...session,revoked:true})]}); return row.record_key===ctx.key;
+		await db.transaction({checks:[...ctx.checks,check('sessions',row.record_key,session)],puts:[put('sessions',row.record_key,{...session,revoked:true})]}); room.events.emit('change'); return row.record_key===ctx.key;
 	}); }
 	function revokeOthers(token) { return retry(async()=>{
 		const ctx=await required(token), generation=randomUUID();
 		await db.transaction({checks:ctx.checks,puts:[put('accounts',ctx.user.id,{...ctx.policy,generation}),put('sessions',ctx.key,{...ctx.session,generation})]});
+		room.events.emit('change');
 	}); }
 	function verification(token,note) { return retry(async()=>{
 		const ctx=await required(token); if(ctx.policy.approved || ctx.policy.request) return;
@@ -376,6 +381,7 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 			const key=`${kind}/${target}`,old=await collections.moderation.get(key); checks.push(check('moderation',key,old)); puts.push(put('moderation',key,{kind,target,hidden:action==='hide',reason,created:Date.now()}));
 		} else throw new Problem(400,'Niepoprawne działanie.');
 		puts.push(put('audit',randomUUID(),{action,kind,target,reason,created:Date.now(),actor:admin.record.id})); await db.transaction({checks,puts});if(shout)shout.hidden=action==='hide';
+		if(shout || kind==='user')room.events.emit('change');
 	}); }
 	async function adminData(view='reports',page=1,target='') {
 		if(view==='shouts')return {view,page:1,target,rows:(await shoutRows(true)).reverse().filter((message)=>!target || message.id===target)};
@@ -423,6 +429,6 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		}));
 		return {posts:[...posts],total,page};
 	}
-	return {namespace,collections,init,read,check,put,context,notifications,openNotification,shoutbox,sendShout,authenticated,visitor,issueTicket,recoverTicket,rename,addPost,reply,toggle,sessionList,revokeSession,revokeOthers,verification,report,moderate,adminData,feed,limit};
+	return {namespace,collections,init,read,check,put,context,notifications,openNotification,shoutbox,sendShout,subscribeShouts,authenticated,visitor,issueTicket,recoverTicket,rename,addPost,reply,toggle,sessionList,revokeSession,revokeOthers,verification,report,moderate,adminData,feed,limit};
 }
 export const store=openStore();

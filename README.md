@@ -41,7 +41,7 @@ Add a photo by choosing a file, pasting or dropping it into the blip textarea, o
 
 Mention a current nickname with `@nick` in a post or answer. The bell opens that conversation and marks the notification read; visible pages refresh it every 30 seconds. A post can mention up to 20 nicknames.
 
-The header's Shoutbox opens a live chat with a rolling buffer of the latest 20 messages in app-server RAM. Chat messages are not written to OpenRails and vanish on restart.
+The header's Shoutbox opens a live chat with a rolling buffer of the latest 20 messages in app-server RAM. Chat messages are not written to OpenRails and vanish on restart. Room events push updates immediately over SSE. A ten-second safety check catches account changes from other processes and keeps connections alive. Each app instance has its own room.
 
 Post links use `/pytanie/<id>/<slug>` or `/wpis/<id>/<slug>`. Profiles use `/ludzie/<nick>` and pagination adds `/strona/2`.
 
