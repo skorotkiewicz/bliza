@@ -14,6 +14,7 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 	if (!/^[a-z][a-z0-9_]{0,50}$/.test(namespace)) throw new Error('Invalid OpenRails namespace');
 	const fields = {
 		notifications: ['user_id','actor_id','post_id','reply_id','created','read'],
+		shouts_raw: ['user_id','body','created'],
 		users: ['name','avatar'], sessions: ['user_id','created','generation','revoked','id','device'],
 		posts_raw: ['user_id','kind','title','body','category','image','created','tags'],
 		replies_raw: ['post_id','user_id','body','created'], likes: ['user_id','post_id'], bookmarks: ['user_id','post_id'], follows: ['user_id','target_id'],
@@ -24,6 +25,8 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 	const views = Object.entries(fields).map(([table, columns]) => `${table} AS (SELECT key AS ${table === 'sessions' ? 'record_key' : 'id'}, ${columns.map((n) => `json_extract(value, '$.${n}') AS ${n}`).join(', ')} FROM kv WHERE scope='' AND collection='${namespace}_${table.replace('_raw','')}')`);
 	views.push("posts AS (SELECT p.* FROM posts_raw p WHERE NOT EXISTS (SELECT 1 FROM moderation m WHERE m.kind='post' AND m.target=p.id AND m.hidden=1) AND NOT EXISTS (SELECT 1 FROM accounts a WHERE a.id=p.user_id AND a.banned=1))");
 	views.push("replies AS (SELECT r.* FROM replies_raw r JOIN posts p ON p.id=r.post_id WHERE NOT EXISTS (SELECT 1 FROM moderation m WHERE m.kind='reply' AND m.target=r.id AND m.hidden=1) AND NOT EXISTS (SELECT 1 FROM accounts a WHERE a.id=r.user_id AND a.banned=1))");
+	views.push("shouts AS (SELECT s.* FROM shouts_raw s WHERE NOT EXISTS (SELECT 1 FROM moderation m WHERE m.kind='shout' AND m.target=s.id AND m.hidden=1) AND NOT EXISTS (SELECT 1 FROM accounts a WHERE a.id=s.user_id AND a.banned=1))");
+	const contentTables = {post:'posts',reply:'replies',shout:'shouts'};
 	views.push('tags AS (SELECT p.id AS post_id, t.value AS tag FROM posts p, json_each(p.tags) t)');
 	const read = (sql,...params) => data.runSQL(`WITH ${views.join(', ')} ${sql}`,params);
 	const check = (table,key,value) => ({ collection:`${namespace}_${table}`, key:String(key), exists:value !== null, ...(value !== null ? { value } : {}) });
@@ -267,6 +270,26 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		if (!old.read) await db.transaction({checks: [...ctx.checks, check('notifications',id,old)], puts: [put('notifications',id,{...old,read:true})]});
 		return notificationHref(row);
 	}); }
+	async function shoutbox(token) {
+		const ctx=await required(token);
+		// ponytail: show the latest 50 messages; add history pagination if the room needs an archive.
+		const rows=await read('SELECT s.*,u.name,(SELECT approved FROM accounts WHERE id=u.id) AS approved FROM shouts s JOIN users u ON u.id=s.user_id ORDER BY s.created DESC,s.id DESC LIMIT 50');
+		return {userId:ctx.user.id,canWrite:!approvalRequired() || Boolean(ctx.policy.approved),items:[...rows].reverse()};
+	}
+	function sendShout(token,body,id) {
+		if(typeof body!=='string' || !body.trim() || body.trim().length>500)throw new Problem(400,'Wiadomość musi mieć od 1 do 500 znaków.');
+		body=body.trim();safeId(id);
+		return retry(async()=>{
+			const ctx=await required(token,true),existing=await collections.shouts.get(id);
+			if(existing) {
+				if(existing.user_id===ctx.user.id && existing.body===body)return id;
+				throw new Problem(409,'Ten identyfikator wiadomości jest już zajęty.');
+			}
+			const quota=await slot(`shout:${ctx.user.id}`,20);
+			await db.transaction({checks:[...ctx.checks,check('shouts',id,null),quota.check],puts:[put('shouts',id,{user_id:ctx.user.id,body,created:Date.now()}),quota.put]});
+			return id;
+		});
+	}
 	function addPost(token,kind,title,body,category,attachment=null,created=Date.now(),id=randomUUID()) { return retry(async()=>{
 		const ctx=await required(token,true); id=String(id); safeId(id);
 		const fingerprint=digest(JSON.stringify([kind,title,body,category,attachment?.digest||null]));
@@ -311,8 +334,8 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		await db.transaction({checks:[...ctx.checks,quota.check],puts:[put('accounts',ctx.user.id,{...ctx.policy,request:{note,code:randomBytes(4).toString('hex'),created:Date.now()}}),quota.put]});
 	}); }
 	function report(token,kind,target,reason) { return retry(async()=>{
-		const ctx=await required(token); safeId(target); if(!['post','reply'].includes(kind)) throw new Problem(400,'Niepoprawny typ zgłoszenia.');
-		if(!(await read(`SELECT id FROM ${kind==='post'?'posts':'replies'} WHERE id=?`,target)).length) throw new Problem(404,'Nie znaleziono treści.');
+		const ctx=await required(token); safeId(target); if(!Object.hasOwn(contentTables,kind)) throw new Problem(400,'Niepoprawny typ zgłoszenia.');
+		if(!(await read(`SELECT id FROM ${contentTables[kind]} WHERE id=?`,target)).length) throw new Problem(404,'Nie znaleziono treści.');
 		const quota=await slot(`report:${ctx.user.id}`,10,3600000);
 		await db.transaction({checks:[...ctx.checks,quota.check],puts:[put('reports',randomUUID(),{kind,target,user_id:ctx.user.id,reason,created:Date.now(),resolved:false}),quota.put]});
 	}); }
@@ -333,8 +356,8 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 			puts.push(put('accounts',target,{...value,reason,updated:Date.now()}));
 		} else if(kind==='report' && action==='resolve') {
 			const old=await collections.reports.get(target); if(!old) throw new Problem(404,'Nie znaleziono zgłoszenia.'); checks.push(check('reports',target,old)); puts.push(put('reports',target,{...old,resolved:true}));
-		} else if(['post','reply'].includes(kind) && ['hide','restore'].includes(action)) {
-			if(!await collections[kind==='post'?'posts':'replies'].get(target)) throw new Problem(404,'Nie znaleziono treści.');
+		} else if(Object.hasOwn(contentTables,kind) && ['hide','restore'].includes(action)) {
+			if(!await collections[contentTables[kind]].get(target)) throw new Problem(404,'Nie znaleziono treści.');
 			const key=`${kind}/${target}`,old=await collections.moderation.get(key); checks.push(check('moderation',key,old)); puts.push(put('moderation',key,{kind,target,hidden:action==='hide',reason,created:Date.now()}));
 		} else throw new Problem(400,'Niepoprawne działanie.');
 		puts.push(put('audit',randomUUID(),{action,kind,target,reason,created:Date.now(),actor:admin.record.id})); await db.transaction({checks,puts});
@@ -345,10 +368,11 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 			users:'SELECT u.*,a.approved,a.banned,a.request FROM users u LEFT JOIN accounts a ON a.id=u.id ORDER BY a.request IS NOT NULL DESC,u.name',
 			posts:"SELECT p.*,u.name,COALESCE(m.hidden,0) AS hidden FROM posts_raw p JOIN users u ON u.id=p.user_id LEFT JOIN moderation m ON m.kind='post' AND m.target=p.id ORDER BY p.created DESC",
 			replies:"SELECT r.*,u.name,COALESCE(m.hidden,0) AS hidden FROM replies_raw r JOIN users u ON u.id=r.user_id LEFT JOIN moderation m ON m.kind='reply' AND m.target=r.id ORDER BY r.created DESC",
+			shouts:"SELECT s.*,u.name,COALESCE(m.hidden,0) AS hidden FROM shouts_raw s JOIN users u ON u.id=s.user_id LEFT JOIN moderation m ON m.kind='shout' AND m.target=s.id ORDER BY s.created DESC,s.id DESC",
 			audit:'SELECT * FROM audit ORDER BY created DESC'
 		};
 		if(!queries[view]) view='reports'; page=Math.max(1,Math.min(10000,Math.floor(Number(page)||1)));
-		const alias={users:'u.id',posts:'p.id',replies:'r.id',reports:'r.id',audit:'id'}[view];
+		const alias={users:'u.id',posts:'p.id',replies:'r.id',shouts:'s.id',reports:'r.id',audit:'id'}[view];
 		const sql=target ? queries[view].replace(' ORDER BY',` WHERE ${alias}=? ORDER BY`) : queries[view];
 		const rows=await read(`${sql} LIMIT 100 OFFSET ?`,...(target?[target]:[]),(page-1)*100);
 		return {view,page,target,rows:[...rows].map((r)=>({...r,...(r.request ? {request:JSON.parse(r.request)} : {})}))};
@@ -384,6 +408,6 @@ export function openStore(namespace = process.env.OPENRAILS_NAMESPACE || 'bliza'
 		}));
 		return {posts:[...posts],total,page};
 	}
-	return {namespace,collections,init,read,check,put,context,notifications,openNotification,authenticated,visitor,issueTicket,recoverTicket,rename,addPost,reply,toggle,sessionList,revokeSession,revokeOthers,verification,report,moderate,adminData,feed,limit};
+	return {namespace,collections,init,read,check,put,context,notifications,openNotification,shoutbox,sendShout,authenticated,visitor,issueTicket,recoverTicket,rename,addPost,reply,toggle,sessionList,revokeSession,revokeOthers,verification,report,moderate,adminData,feed,limit};
 }
 export const store=openStore();

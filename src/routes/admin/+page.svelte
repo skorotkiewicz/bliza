@@ -1,7 +1,7 @@
 <script>
 	import { enhance } from '$app/forms';
 	let {data,form}=$props();
-	const views={reports:'Zgłoszenia',users:'Konta',posts:'Wpisy',replies:'Odpowiedzi',audit:'Dziennik'};
+	const views={reports:'Zgłoszenia',users:'Konta',posts:'Wpisy',replies:'Odpowiedzi',shouts:'Shoutbox',audit:'Dziennik'};
 	const operations={hide:'Ukryj treść',restore:'Przywróć treść',approve:'Zatwierdź konto',reject:'Odrzuć prośbę',unverify:'Cofnij zatwierdzenie',ban:'Zablokuj konto',unban:'Odblokuj konto',logout:'Wyloguj wszystkie urządzenia',resolve:'Zamknij zgłoszenie'};
 	const date=(value)=>new Date(value).toLocaleString('pl-PL');
 </script>
@@ -21,12 +21,12 @@
 					{#if row.body}<p>{row.body}</p>{/if}{#if row.reason}<p><strong>Powód:</strong> {row.reason}</p>{/if}
 					{#if data.view==='users'}<p>{row.approved?'Zatwierdzone':'Niezatwierdzone'} · {row.banned?'Zablokowane':'Aktywne'}</p>{#if row.request}<p>{row.request.note}</p><p>Kod właściciela: <code>{row.request.code}</code></p>{/if}{/if}
 					{#if row.image}<a href={row.image.startsWith('/media/')?`/admin${row.image}`:row.image} target="_blank" rel="noreferrer">Podgląd zdjęcia</a>{/if}
-					{#if data.view==='reports'}<p>{row.resolved?'Zamknięte':'Otwarte'}</p><a href={`/admin?view=${row.kind==='post'?'posts':'replies'}&target=${encodeURIComponent(row.target)}`}>Przejdź do zgłoszonej treści</a>{/if}
-					{#if data.view==='posts'||data.view==='replies'}<p>{row.hidden?'Ukryte przez moderatora':'Widoczne'}</p>{/if}
+					{#if data.view==='reports'}<p>{row.resolved?'Zamknięte':'Otwarte'}</p><a href={`/admin?view=${{post:'posts',reply:'replies',shout:'shouts'}[row.kind]}&target=${encodeURIComponent(row.target)}`}>Przejdź do zgłoszonej treści</a>{/if}
+					{#if ['posts','replies','shouts'].includes(data.view)}<p>{row.hidden?'Ukryte przez moderatora':'Widoczne'}</p>{/if}
 					{#if data.view==='audit'}<p>{operations[row.action]||row.action} · {row.kind} / {row.target}</p>{/if}
 				</div>
 				{#if data.view!=='audit'}<form method="POST" action={`?/moderate&view=${data.view}&page=${data.page}${data.target?`&target=${encodeURIComponent(data.target)}`:''}`} class="admin-action" use:enhance={()=>({update})=>update({navigate:false})}>
-					<input type="hidden" name="kind" value={data.view==='users'?'user':data.view==='posts'?'post':data.view==='replies'?'reply':'report'} /><input type="hidden" name="id" value={row.id} />
+					<input type="hidden" name="kind" value={data.view==='users'?'user':data.view==='posts'?'post':data.view==='replies'?'reply':data.view==='shouts'?'shout':'report'} /><input type="hidden" name="id" value={row.id} />
 					<label>Działanie<select name="operation">{#each (data.view==='users'?['approve','reject','unverify','ban','unban','logout']:data.view==='reports'?['resolve']:['hide','restore']) as action}<option value={action}>{operations[action]}</option>{/each}</select></label>
 					<label>Powód działania<input name="reason" required minlength="5" maxlength="500" placeholder="Co sprawdzono lub dlaczego interweniujesz?" /></label>
 					{#if data.view==='users'}<label>Kod właściciela<input name="code" maxlength="8" placeholder="Potrzebny przy zatwierdzaniu" /></label><label class="admin-confirm"><input type="checkbox" name="confirmed" value="yes" />Potwierdzam ręczny kontakt z właścicielem i zgodność kodu.</label>{/if}

@@ -4,6 +4,7 @@
 	import { onDestroy, onMount, untrack, tick } from 'svelte';
 	import Icon from '#lib/Icon.svelte';
 	import Avatar from '#lib/Avatar.svelte';
+	import Shoutbox from '#lib/Shoutbox.svelte';
 	import { postPath, profilePath, feedPath } from '#lib/urls.js';
 
 	let { data, form } = $props();
@@ -53,6 +54,13 @@
 		document.addEventListener('keydown', dismiss); document.addEventListener('click', dismiss);
 		return () => { clearInterval(interval); document.removeEventListener('keydown', dismiss); document.removeEventListener('click', dismiss); };
 	});
+	let shoutboxOpen=$state(false);
+	let shoutboxToggle;
+	async function toggleShoutbox() {
+		shoutboxOpen=!shoutboxOpen;await tick();
+		if(shoutboxOpen)document.getElementById('shoutbox')?.focus({preventScroll:true});
+		else shoutboxToggle?.focus({preventScroll:true});
+	}
 	let reportDialog;
 	let reportKind = $state('post');
 	let reportId = $state('');
@@ -387,10 +395,11 @@
 					><Icon name="chat" size={17} />Blipowisko<span class="new-label">160 znaków</span></a
 				>
 			</nav>
-			<span class="nav-note"><span class="online-dot"></span> Dobrze, że jesteś.</span>
+			<button class="shoutbox-toggle" aria-label="Shoutbox" class:active={shoutboxOpen} bind:this={shoutboxToggle} aria-expanded={shoutboxOpen} aria-controls="shoutbox" onclick={toggleShoutbox}><Icon name="chat" size={17} />Shoutbox<span class="new-label">na żywo</span></button>
 		</div>
 	</div>
 </header>
+<Shoutbox open={shoutboxOpen} user={data.user} approvalRequired={data.approvalRequired} onclose={toggleShoutbox} onreport={openReport} />
 
 <div class="container breadcrumb">
 	<span>Jesteś u siebie</span><Icon name="chevron" size={12} /><span

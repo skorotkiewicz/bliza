@@ -22,7 +22,7 @@ Restart the server after changing `.env`. Keep secrets server-side, never in `PU
 | `OPENRAILS_TOKEN`     | Project API key                                                                     |
 | `OPENRAILS_NAMESPACE` | Storage namespace, default `bliza`                                                  |
 | `ADMIN`               | Separate admin secret; empty or invalid disables `/admin`                           |
-| `REQUIRE_APPROVAL`    | `true` by default; `false` allows posts and replies without approval                |
+| `REQUIRE_APPROVAL`    | `true` by default; `false` allows posts, replies and chat without approval                |
 | `SEED_DEMO`           | `true` adds fictional content when initializing an empty namespace; default `false` |
 | `ORIGIN`              | Public HTTPS URL for production                                                     |
 
@@ -40,6 +40,8 @@ Generate `ADMIN` with `openssl rand -hex 32`. It must contain 32–256 printable
 Add a photo by choosing a file, pasting or dropping it into the blip textarea, or entering a public HTTPS image link. Blips accept JPG, PNG, GIF or WebP images up to 5 MB. Uploads are resized, stripped of metadata and stored as WebP.
 
 Mention a current nickname with `@nick` in a post or answer. The bell opens that conversation and marks the notification read; visible pages refresh it every 30 seconds. A post can mention up to 20 nicknames.
+
+The header's Shoutbox opens a shared live chat with the latest 50 messages. Messages are saved in OpenRails, limited to 500 characters and 20 per minute per account. Approval and bans apply; messages can be reported, hidden and restored in `/admin`. Live updates use same-origin SSE, checking storage every second while the panel is open; connections renew every 20 seconds for serverless hosting.
 
 Post links use `/pytanie/<id>/<slug>` or `/wpis/<id>/<slug>`. Profiles use `/ludzie/<nick>` and pagination adds `/strona/2`.
 
