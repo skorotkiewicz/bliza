@@ -5,7 +5,7 @@ export const config = { maxDuration: 30 };
 const headers = { 'Cache-Control': 'private, no-store, no-transform' };
 const failure = (error) => json({ error: error instanceof Problem ? error.message : 'Shoutbox jest chwilowo niedostępny.' }, { status: error instanceof Problem ? error.status : 503, headers });
 
-export async function GET({ cookies }) {
+export async function GET({ cookies, request }) {
 	const token = cookies.get('bliza_session');
 	let stopped = false, pending = false, busy = false, timer, deadline;
 	let refresh = () => { pending = true; };
@@ -14,15 +14,21 @@ export async function GET({ cookies }) {
 	const cleanup = () => {
 		if (stopped) return;
 		stopped = true; clearInterval(timer); clearTimeout(deadline); unsubscribe();
+		request?.signal.removeEventListener('abort', abort);
 	};
+	let close = cleanup;
+	const abort = () => close();
+	request?.signal.addEventListener('abort', abort, { once: true });
+	if (request?.signal.aborted) abort();
 	let initial;
 	try { initial = await store.shoutbox(token); }
 	catch (error) { cleanup(); return failure(error); }
+	if (stopped) return new Response(null, { status: 499, headers });
 	const encoder = new TextEncoder();
 	const body = new ReadableStream({
 		start(controller) {
 			let previous = '';
-			const close = () => { if (!stopped) { cleanup(); controller.close(); } };
+			close = () => { if (!stopped) { cleanup(); controller.close(); } };
 			const send = (snapshot) => {
 				const next = JSON.stringify(snapshot);
 				controller.enqueue(encoder.encode(next === previous ? ': alive\n\n' : `data: ${next}\n\n`));
@@ -49,9 +55,15 @@ export async function GET({ cookies }) {
 			};
 			controller.enqueue(encoder.encode('retry: 1000\n\n'));
 			if (pending) void refresh(); else send(initial);
-			// ponytail: cross-process account changes are checked every 10s; shared events if instant remote revocation is needed.
-			timer = setInterval(refresh, 10000);
-			deadline = setTimeout(close, 20000);
+			// // ponytail: cross-process account changes are checked every 10s; shared events if instant remote revocation is needed.
+			// timer = setInterval(refresh, 10000);
+			// deadline = setTimeout(close, 20000);
+			// -----------------------------------------
+			// ponytail: remote account changes wait for an event/reconnect; shared events if instant remote revocation is needed.
+			// timer = setInterval(() => {
+			// 	if (!stopped && !busy && controller.desiredSize > 0) controller.enqueue(encoder.encode(': alive\n\n'));
+			// }, 10000);
+			// deadline = setTimeout(close, 20000);
 		},
 		pull() { if (pending) return refresh(); },
 		cancel() { cleanup(); }

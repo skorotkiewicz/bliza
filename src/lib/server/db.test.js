@@ -271,9 +271,9 @@ test.skipIf(!process.env.OPENRAILS_TOKEN)('20-message RAM chat validates, dedupl
 });
 
 
-test('SSE pushes room events without one-second reads, coalesces bursts and cleans up listeners', async () => {
+test('SSE pushes room events, sends database-free heartbeats, coalesces bursts and cleans up listeners', async () => {
 	const events=new EventEmitter(),originalInterval=globalThis.setInterval;
-	let snapshot={userId:'viewer',canWrite:true,items:[]},reads=0,subscribers=0,invalid=false,blocked,onRead,safety;
+	let snapshot={userId:'viewer',canWrite:true,items:[]},reads=0,subscribers=0,invalid=false,blocked,onRead,heartbeat;
 	let active=0,maximum=0,reader;
 	const reading=spyOn(store,'shoutbox').mockImplementation(async()=>{
 		reads++;active++;maximum=Math.max(maximum,active);
@@ -290,7 +290,7 @@ test('SSE pushes room events without one-second reads, coalesces bursts and clea
 		return ()=>{subscribers--;events.off('change',callback);};
 	});
 	const intervals=spyOn(globalThis,'setInterval').mockImplementation((callback,ms,...args)=>{
-		if(ms===10000)safety=callback;
+		if(ms===10000)heartbeat=callback;
 		return originalInterval(callback,ms,...args);
 	});
 	const decoder=new TextDecoder();let buffer='';
@@ -320,14 +320,21 @@ test('SSE pushes room events without one-second reads, coalesces bursts and clea
 		expect(reads).toBe(5);
 		expect(JSON.parse((await frame()).slice(6)).items[0].id).toBe('queued');
 		expect(JSON.parse((await frame()).slice(6)).items[0].id).toBe('after-backpressure');expect(reads).toBe(6);
-		await safety();expect(decoder.decode((await reader.read()).value)).toBe(': alive\n\n');
-		invalid=true;await safety();expect(await frame()).toContain('event: session');
+		heartbeat();expect(decoder.decode((await reader.read()).value)).toBe(': alive\n\n');expect(reads).toBe(6);
+		invalid=true;heartbeat();expect(decoder.decode((await reader.read()).value)).toBe(': alive\n\n');expect(reads).toBe(6);
+		events.emit('change');expect(await frame()).toContain('event: session');
 		expect((await reader.read()).done).toBe(true);expect(subscribers).toBe(0);
 		expect((await shoutStream({cookies})).status).toBe(401);expect(subscribers).toBe(0);
 		invalid=false;reader=(await shoutStream({cookies})).body.getReader();buffer='';await frame();
 		blocked=new Promise((resolve)=>{release=resolve;});events.emit('change');
 		await reader.cancel();release();await Bun.sleep(0);expect(subscribers).toBe(0);
-		const before=reads;events.emit('change');expect(reads).toBe(before);
+		const before=reads;heartbeat();events.emit('change');expect(reads).toBe(before);
+		const aborting=new AbortController();blocked=new Promise((resolve)=>{release=resolve;});
+		const connecting=shoutStream({cookies,request:new Request('http://localhost/shoutbox',{signal:aborting.signal})});
+		expect(subscribers).toBe(1);aborting.abort();expect(subscribers).toBe(0);
+		release();expect((await connecting).status).toBe(499);
+		const liveAbort=new AbortController();reader=(await shoutStream({cookies,request:new Request('http://localhost/shoutbox',{signal:liveAbort.signal})})).body.getReader();buffer='';await frame();
+		liveAbort.abort();expect((await reader.read()).done).toBe(true);expect(subscribers).toBe(0);
 	} finally {
 		await reader?.cancel();reading.mockRestore();subscribing.mockRestore();intervals.mockRestore();
 	}
