@@ -55,9 +55,9 @@ export async function GET({ cookies, request }) {
 			};
 			controller.enqueue(encoder.encode('retry: 1000\n\n'));
 			if (pending) void refresh(); else send(initial);
-			// // ponytail: cross-process account changes are checked every 10s; shared events if instant remote revocation is needed.
-			// timer = setInterval(refresh, 10000);
-			// deadline = setTimeout(close, 20000);
+			// ponytail: cross-process account changes are checked every 10s; shared events if instant remote revocation is needed.
+			timer = setInterval(refresh, 10000);
+			deadline = setTimeout(close, 20000);
 			// -----------------------------------------
 			// ponytail: remote account changes wait for an event/reconnect; shared events if instant remote revocation is needed.
 			// timer = setInterval(() => {
