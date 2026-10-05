@@ -893,7 +893,7 @@ try {
 	assert.equal((await context.request.post(`${base}/?/report`,{headers,form:{kind:'shout',id:chatMessageId,reason:'Próba zgłoszenia wiadomości czatu.'}})).status(),400,'Direct chat-report requests are rejected too');
 	await moderator.goto(`${base}/admin?view=shouts&target=${chatMessageId}`);const chatModerationRow=moderator.locator(`.admin-row[data-id="${chatMessageId}"]`);
 	await chatModerationRow.getByLabel('Działanie').selectOption('hide');await chatModerationRow.getByLabel('Powód działania').fill('Ukrycie wiadomości w aktywnym strumieniu.');await chatModerationRow.getByRole('button',{name:'Zapisz działanie'}).click();
-	await chatMessage.waitFor({state:'hidden'});assert.equal(await chatPeer.locator(`#shout-${chatMessageId}`).count(),0,'Moderation disappears from every open chat without a reload');
+	await chatMessage.waitFor({state:'hidden'});await chatPeer.locator(`#shout-${chatMessageId}`).waitFor({state:'detached'});assert.equal(await chatPeer.locator(`#shout-${chatMessageId}`).count(),0,'Moderation disappears from every open chat without a reload');
 	await chatModerationRow.getByLabel('Działanie').selectOption('restore');await chatModerationRow.getByLabel('Powód działania').fill('Przywrócenie wiadomości w aktywnym strumieniu.');await chatModerationRow.getByRole('button',{name:'Zapisz działanie'}).click();await chatMessage.waitFor();
 	for(const width of [1440,760,390,320]) {
 		await chatPage.setViewportSize({width,height:844});const box=await chatPage.locator('#shoutbox').boundingBox(),headerBox=await chatPage.locator('.site-header').boundingBox();
